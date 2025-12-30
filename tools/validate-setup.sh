@@ -58,6 +58,32 @@ check_command "make" "--version" "make" || true
 
 echo ""
 
+# AWS Connectivity Check
+echo "→ Checking AWS connectivity..."
+
+if command -v "aws" >/dev/null 2>&1; then
+  # Source .secrets file if it exists to load AWS credentials
+  if [ -f ".secrets" ]; then
+    . ./.secrets 2>/dev/null || true
+  fi
+
+  # Check if AWS credentials are configured
+  if aws sts get-caller-identity >/dev/null 2>&1; then
+    aws_identity=$(aws sts get-caller-identity --query 'Arn' --output text 2>&1)
+    printf "${GREEN}✓${NC} AWS credentials are valid (%s)\n" "$aws_identity"
+  else
+    printf "${RED}✗${NC} AWS credentials not configured or invalid\n"
+    echo "  Run: aws configure"
+    echo "  Or set: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION"
+    echo "  Or add credentials to .secrets file"
+    ALL_PASSED=false
+  fi
+else
+  printf "${RED}✗${NC} AWS CLI not installed (checked above)\n"
+fi
+
+echo ""
+
 # Summary
 if [ "$ALL_PASSED" = true ]; then
   printf "${GREEN}✓ All required tools are installed!${NC}\n"
