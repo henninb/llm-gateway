@@ -1,0 +1,91 @@
+# LiteLLM Configuration
+# This configuration file defines multiple models accessible through LiteLLM
+
+model_list:
+  # Perplexity Models (work locally with API key)
+  - model_name: perplexity-sonar
+    litellm_params:
+      model: perplexity/sonar
+      api_key: os.environ/PERPLEXITY_API_KEY
+
+  - model_name: perplexity-sonar-pro
+    litellm_params:
+      model: perplexity/sonar-pro
+      api_key: os.environ/PERPLEXITY_API_KEY
+
+  # Amazon Nova Models - NO PAYMENT VALIDATION REQUIRED
+  # These are AWS's native models and work immediately after enabling Bedrock
+  # Require only: AWS credentials/IAM role + Bedrock access enabled (no AWS Marketplace)
+
+  - model_name: nova-micro
+    litellm_params:
+      model: bedrock/amazon.nova-micro-v1:0
+      aws_region_name: us-east-1
+
+  - model_name: nova-lite
+    litellm_params:
+      model: bedrock/amazon.nova-lite-v1:0
+      aws_region_name: us-east-1
+
+  - model_name: nova-pro
+    litellm_params:
+      model: bedrock/amazon.nova-pro-v1:0
+      aws_region_name: us-east-1
+
+  - model_name: llama3-2-1b
+    litellm_params:
+      model: bedrock/us.meta.llama3-2-1b-instruct-v1:0
+      aws_region_name: us-east-1
+
+  - model_name: llama3-2-3b
+    litellm_params:
+      model: bedrock/us.meta.llama3-2-3b-instruct-v1:0
+      aws_region_name: us-east-1
+
+# LiteLLM Settings
+litellm_settings:
+  # Drop parameters not supported by the backend
+  drop_params: true
+  # Enable verbose logging for debugging
+  set_verbose: false
+  # Callback configurations
+  success_callback: []
+  failure_callback: []
+  # Cache settings
+  cache: false
+
+# General Settings
+general_settings:
+  # Master key for API authentication
+  master_key: os.environ/LITELLM_MASTER_KEY
+  # Public routes that don't require authentication (for ALB health checks)
+  public_routes: ["/health", "/health/readiness", "/health/liveliness"]
+  # Optional: Database URL for storing logs and analytics
+  # database_url: postgresql://user:password@host:port/dbname
+  database_url: null
+  # Allow cross-origin requests
+  allowed_origins: ["*"]
+  # Enable Swagger UI
+  enable_swagger: true
+
+# Router Settings (optional)
+router_settings:
+  # Enable load balancing across multiple model instances
+  routing_strategy: simple-shuffle
+  # Retry failed requests
+  num_retries: 2
+  # Timeout for model calls (seconds)
+  timeout: 600
+  # Fallback models if primary fails (model -> list of fallback models)
+  # fallbacks:
+  #   claude-sonnet: ["claude-haiku"]
+  #   claude-opus: ["claude-sonnet", "claude-haiku"]
+
+# Environment Settings
+# These can be overridden by environment variables
+environment_variables:
+  AWS_REGION_NAME: us-east-1
+  # AWS credentials will be automatically loaded from:
+  # 1. IAM role
+  # 2. Environment variables
+  # 3. ~/.aws/credentials file

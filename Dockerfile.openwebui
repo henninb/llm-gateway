@@ -1,0 +1,18 @@
+FROM ghcr.io/open-webui/open-webui:v0.6.43
+
+# Verify curl is available for health checks (fail build if missing)
+RUN which curl || (echo "ERROR: curl not found in base image" && exit 1)
+
+# Create non-root user for running the application (Debian-style)
+RUN groupadd -g 1000 openwebui && \
+    useradd -u 1000 -g 1000 -m -s /bin/bash openwebui
+
+# Change ownership of entire app directory to non-root user
+RUN chown -R openwebui:openwebui /app
+
+# Switch to non-root user
+USER openwebui
+
+# Health check - verify HTTP server is responding
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:8080/ || exit 1

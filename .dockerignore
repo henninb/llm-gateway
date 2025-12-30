@@ -1,0 +1,43 @@
+# Git
+.git
+.gitignore
+
+# Terraform
+terraform/.terraform
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/.terraform.lock.hcl
+terraform/tfplan
+
+# Documentation
+README.md
+*.md
+
+# Tests
+tests/
+
+# Scripts
+scripts/
+deploy-litellm.sh
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.log
+.litellm_endpoint
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Node
+node_modules/

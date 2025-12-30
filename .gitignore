@@ -1,0 +1,65 @@
+# Terraform - recursive patterns to catch all directories
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/terraform.tfstate.*
+**/tfplan
+**/*.tfvars
+!**/*.tfvars.example
+
+# AWS
+.aws/
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+*.pyc
+
+# Environment
+.env
+.env.local
+*.env
+.secrets
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+.litellm_endpoint
+.litellm_endpoint_eks
+.port-forward-eks.pid
+*.tmp
+*.bak
+
+# LiteLLM UI generated config
+litellm-ui/config.js
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db
+
+terraform/eks/.terraform.tfstate.lock.info
+.openwebui_endpoint_eks
+
+# Terraform local state
+terraform/local/.terraform/
+terraform/local/*.tfstate*
+terraform/local/terraform.tfvars

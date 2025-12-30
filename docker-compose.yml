@@ -1,0 +1,58 @@
+name: llm-gateway
+
+services:
+  litellm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: litellm
+    restart: unless-stopped
+    user: "1000:1000"  # Run as non-root user (matches Dockerfile USER)
+    # ports:
+    #   - "4000:4000"  # Port not exposed to host - only accessible within Docker network
+    volumes:
+      - ./config/litellm_config.yaml:/app/config.yaml:ro
+    environment:
+      - AWS_REGION_NAME=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - PERPLEXITY_API_KEY=${PERPLEXITY_API_KEY}
+    networks:
+      llm-gateway-network:
+        aliases:
+          - litellm
+
+  openwebui:
+    build:
+      context: .
+      dockerfile: Dockerfile.openwebui
+    container_name: openwebui
+    restart: unless-stopped
+    ports:
+      - "3000:8080"
+    volumes:
+      - openwebui:/app/backend/data
+    environment:
+      - OPENAI_API_BASE_URL=http://litellm:4000/v1
+      - OPENAI_API_KEY=${LITELLM_MASTER_KEY}
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      - DATA_DIR=/app/backend/data
+      - ENABLE_OLLAMA_API=false
+      - USER_AGENT=OpenWebUI
+    depends_on:
+      - litellm
+    networks:
+      llm-gateway-network:
+        aliases:
+          - openwebui
+
+networks:
+  llm-gateway-network:
+    name: llm-gateway-network
+    driver: bridge
+
+volumes:
+  openwebui:
+    name: openwebui-volume
