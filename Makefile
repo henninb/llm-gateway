@@ -27,12 +27,24 @@ local-port-forward: ## Forward LiteLLM port 4000 to localhost (Ctrl+C to stop)
 	@echo "Forwarding localhost:4000 -> litellm:4000 (press Ctrl+C to stop)"
 	@docker run --rm -it --network llm-gateway-network -p 4000:4000 alpine/socat TCP-LISTEN:4000,fork,reuseaddr TCP:litellm:4000
 
+test-health: ## Check service health and connectivity
+	@sh tests/test-health.sh
+
 test-models: ## Test all LiteLLM models (optionally set ENDPOINT=http://host:port)
 	@if [ -f .secrets ]; then \
 		set -a && . ./.secrets && set +a && ./tests/test-models.sh $(ENDPOINT); \
 	else \
 		./tests/test-models.sh $(ENDPOINT); \
 	fi
+
+test-all: ## Run all tests (setup validation, health check, model tests)
+	@echo "Running complete test suite..."
+	@echo ""
+	@make validate-setup
+	@echo ""
+	@make test-health
+	@echo ""
+	@make test-models
 
 local-destroy: ## Destroy local Docker containers, volumes, networks, and images
 	@echo "Stopping and removing containers, volumes, and networks..."
