@@ -2,20 +2,25 @@
 ENDPOINT ?= http://localhost:4000
 AWS_REGION ?= us-east-1
 
-# local-build:
-	# docker build -t llm-gateway:local .
+.DEFAULT_GOAL := help
 
-local-deploy:
+help: ## Show this help message
+	@echo "LLM Gateway - Available Commands:"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+
+local-deploy: ## Deploy containers locally with docker-compose
 	@if [ -f .secrets ]; then \
 		set -a && . ./.secrets && set +a && docker-compose up -d; \
 	else \
 		docker-compose up -d; \
 	fi
 
-local-status:
+local-status: ## Show status of all Docker containers
 	docker ps -a
 
-port-forward: ## Forward LiteLLM port 4000 to localhost (Ctrl+C to stop)
+local-port-forward: ## Forward LiteLLM port 4000 to localhost (Ctrl+C to stop)
 	@echo "Forwarding localhost:4000 -> litellm:4000 (press Ctrl+C to stop)"
 	@docker run --rm -it --network llm-gateway-network -p 4000:4000 alpine/socat TCP-LISTEN:4000,fork,reuseaddr TCP:litellm:4000
 
