@@ -10,6 +10,9 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 
+validate-setup: ## Validate required tools are installed
+	@sh tools/validate-setup.sh
+
 local-deploy: ## Deploy containers locally with docker-compose
 	@if [ -f .secrets ]; then \
 		set -a && . ./.secrets && set +a && docker-compose up -d; \
