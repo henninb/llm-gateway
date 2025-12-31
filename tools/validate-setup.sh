@@ -55,6 +55,7 @@ else
 fi
 
 check_command "make" "--version" "make" || true
+check_command "docker-credential-pass" "version" "docker-credential-pass" || true
 
 echo ""
 
@@ -97,5 +98,8 @@ else
   echo "  docker:    https://docs.docker.com/get-docker/"
   echo "  kubectl:   https://kubernetes.io/docs/tasks/tools/"
   echo "  python3:   https://www.python.org/downloads/"
+  echo ""
+  echo "Optional (recommended):"
+  echo "  docker-credential-pass: yay -S docker-credential-pass (AUR)"
   exit 1
 fi

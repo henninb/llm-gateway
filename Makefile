@@ -59,6 +59,103 @@ aws-costs: ## Generate AWS cost report for current resources (shell version)
 aws-costs-py: ## Generate AWS cost report (Python version with rich formatting)
 	@AWS_REGION=$(AWS_REGION) python3 tools/report-aws-costs.py
 
+# ECR Infrastructure Targets
+ecr-init: ## Initialize Terraform for ECR repositories
+	@cd terraform/ecr && terraform init
+
+ecr-plan: ## Plan Terraform changes for ECR
+	@cd terraform/ecr && terraform plan
+
+ecr-apply: ## Apply Terraform to create ECR repositories
+	@cd terraform/ecr && terraform apply
+
+ecr-destroy: ## Destroy ECR repositories
+	@cd terraform/ecr && terraform destroy
+
+# ECR Image Management
+ecr-login: ## Login to AWS ECR
+	@AWS_ACCOUNT_ID=$$(aws sts get-caller-identity --query Account --output text) && \
+	aws ecr get-login-password --region $(AWS_REGION) | \
+	docker login --username AWS --password-stdin $$AWS_ACCOUNT_ID.dkr.ecr.$(AWS_REGION).amazonaws.com
+
+ecr-build-push: ## Build and push Docker images to ECR
+	@./tools/build-and-push-ecr.sh latest
+
+# EKS Cluster Infrastructure Targets
+eks-cluster-init: ## Initialize Terraform for EKS cluster creation
+	@cd terraform/eks-cluster && terraform init
+
+eks-cluster-plan: ## Plan Terraform changes for EKS cluster
+	@cd terraform/eks-cluster && terraform plan
+
+eks-cluster-apply: ## Apply Terraform to create EKS cluster
+	@cd terraform/eks-cluster && terraform apply
+
+eks-cluster-destroy: ## Destroy EKS cluster infrastructure
+	@cd terraform/eks-cluster && terraform destroy
+
+eks-cluster-kubeconfig: ## Configure kubectl for EKS cluster
+	@aws eks update-kubeconfig --region $(AWS_REGION) --name llm-gateway-eks
+
+# EKS Secrets Management
+eks-secrets-populate: ## Populate AWS Secrets Manager with API keys (auto-sources .secrets if exists)
+	@if [ -f .secrets ]; then \
+		echo "Loading secrets from .secrets file..."; \
+		set -a && . ./.secrets && set +a && \
+		if [ -z "$$PERPLEXITY_API_KEY" ] || [ -z "$$LITELLM_MASTER_KEY" ] || [ -z "$$WEBUI_SECRET_KEY" ]; then \
+			echo "Error: Required environment variables not set in .secrets file"; \
+			echo "Please set: PERPLEXITY_API_KEY, LITELLM_MASTER_KEY, WEBUI_SECRET_KEY"; \
+			exit 1; \
+		fi; \
+		echo "Populating AWS Secrets Manager with API keys..."; \
+		if aws secretsmanager put-secret-value \
+			--secret-id llm-gateway/api-keys \
+			--region $(AWS_REGION) \
+			--secret-string "$$(printf '{"PERPLEXITY_API_KEY":"%s","LITELLM_MASTER_KEY":"%s","WEBUI_SECRET_KEY":"%s"}' \
+				"$$PERPLEXITY_API_KEY" "$$LITELLM_MASTER_KEY" "$$WEBUI_SECRET_KEY")"; then \
+			echo "✓ Secrets populated successfully"; \
+		else \
+			echo "✗ Failed to populate secrets"; \
+			echo "The secret 'llm-gateway/api-keys' doesn't exist yet."; \
+			echo "Run: cd terraform/eks && terraform init && terraform apply -target=aws_secretsmanager_secret.api_keys"; \
+			exit 1; \
+		fi; \
+	else \
+		if [ -z "$$PERPLEXITY_API_KEY" ] || [ -z "$$LITELLM_MASTER_KEY" ] || [ -z "$$WEBUI_SECRET_KEY" ]; then \
+			echo "Error: .secrets file not found and environment variables not set"; \
+			echo "Please either:"; \
+			echo "  1. Create a .secrets file with the required variables, or"; \
+			echo "  2. Set environment variables: PERPLEXITY_API_KEY, LITELLM_MASTER_KEY, WEBUI_SECRET_KEY"; \
+			exit 1; \
+		fi; \
+		echo "Populating AWS Secrets Manager with API keys..."; \
+		if aws secretsmanager put-secret-value \
+			--secret-id llm-gateway/api-keys \
+			--region $(AWS_REGION) \
+			--secret-string "$$(printf '{"PERPLEXITY_API_KEY":"%s","LITELLM_MASTER_KEY":"%s","WEBUI_SECRET_KEY":"%s"}' \
+				"$$PERPLEXITY_API_KEY" "$$LITELLM_MASTER_KEY" "$$WEBUI_SECRET_KEY")"; then \
+			echo "✓ Secrets populated successfully"; \
+		else \
+			echo "✗ Failed to populate secrets"; \
+			echo "The secret 'llm-gateway/api-keys' doesn't exist yet."; \
+			echo "Run: cd terraform/eks && terraform init && terraform apply -target=aws_secretsmanager_secret.api_keys"; \
+			exit 1; \
+		fi; \
+	fi
+
+# EKS Deployment Targets
+eks-init: ## Initialize Terraform for EKS deployment
+	@cd terraform/eks && terraform init
+
+eks-plan: ## Plan Terraform changes for EKS
+	@cd terraform/eks && terraform plan
+
+eks-apply: ## Apply Terraform to deploy to EKS
+	@cd terraform/eks && terraform apply
+
+eks-destroy: ## Destroy EKS deployment
+	@cd terraform/eks && terraform destroy
+
 local-destroy: ## Destroy local Docker containers, volumes, networks, and images
 	@echo "Stopping and removing containers, volumes, and networks..."
 	@docker-compose down -v --rmi local
