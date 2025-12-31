@@ -20,8 +20,15 @@ local-deploy: ## Deploy containers locally with docker-compose
 		docker-compose up -d; \
 	fi
 
-local-status: ## Show status of all Docker containers
-	docker ps -a
+local-status: ## Show status of Docker containers, networks, and volumes
+	@echo "=== Docker Containers ==="
+	@docker ps -a
+	@echo ""
+	@echo "=== Docker Networks ==="
+	@docker network ls --filter name=llm-gateway
+	@echo ""
+	@echo "=== Docker Volumes ==="
+	@docker volume ls --filter name=openwebui
 
 local-port-forward: ## Forward LiteLLM port 4000 to localhost (Ctrl+C to stop)
 	@echo "Forwarding localhost:4000 -> litellm:4000 (press Ctrl+C to stop)"
