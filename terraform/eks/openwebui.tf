@@ -202,14 +202,6 @@ resource "kubernetes_service" "openwebui" {
       app = "openwebui"
     }
 
-    # HTTP port (always available)
-    port {
-      name        = "http"
-      port        = 80
-      target_port = 8080
-      protocol    = "TCP"
-    }
-
     # HTTPS port (only if ACM certificate is provided)
     dynamic "port" {
       for_each = var.acm_certificate_arn != "" ? [1] : []
