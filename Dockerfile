@@ -19,6 +19,12 @@ RUN chown litellm:litellm /app/config.yaml
 # Expose LiteLLM port
 EXPOSE 4000
 
+# Security: Drop unsupported parameters instead of failing
+ENV LITELLM_DROP_PARAMS=true
+
+# Security: Enable rate limiting
+ENV ENABLE_RATE_LIMIT=true
+
 # Switch to non-root user
 USER litellm
 

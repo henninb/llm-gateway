@@ -117,6 +117,18 @@ resource "kubernetes_deployment" "litellm" {
             value = var.aws_region
           }
 
+          # Security: Drop unsupported parameters instead of failing
+          env {
+            name  = "LITELLM_DROP_PARAMS"
+            value = "true"
+          }
+
+          # Security: Enable rate limiting
+          env {
+            name  = "ENABLE_RATE_LIMIT"
+            value = "true"
+          }
+
           resources {
             requests = {
               cpu    = var.litellm_cpu_request
