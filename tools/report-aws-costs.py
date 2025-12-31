@@ -14,7 +14,11 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.layout import Layout
+from rich.tree import Tree
 from rich import box
+from rich.columns import Columns
+from rich.text import Text
 
 console = Console()
 
@@ -27,6 +31,17 @@ class AWSCostReporter:
         self.region = region
         self.total_resources = 0
         self.console = console
+
+        # Cost tracking
+        self.cost_summary = {
+            'compute': {'count': 0, 'estimated_cost': 0, 'resources': []},
+            'storage': {'count': 0, 'estimated_cost': 0, 'resources': []},
+            'networking': {'count': 0, 'estimated_cost': 0, 'resources': []},
+            'database': {'count': 0, 'estimated_cost': 0, 'resources': []},
+            'serverless': {'count': 0, 'estimated_cost': 0, 'resources': []},
+            'other': {'count': 0, 'estimated_cost': 0, 'resources': []}
+        }
+        self.total_estimated_cost = 0
 
     def verify_credentials(self) -> Tuple[bool, str]:
         """Verify AWS credentials are valid."""
@@ -62,75 +77,110 @@ class AWSCostReporter:
 
     def print_header(self, title: str):
         """Print a section header."""
-        self.console.print(f"\n[cyan]{'='*60}[/cyan]")
-        self.console.print(f"[cyan bold]{title}[/cyan bold]")
-        self.console.print(f"[cyan]{'='*60}[/cyan]")
+        self.console.print(f"\n[bold cyan]{title}[/bold cyan]")
+
+    def display_cost_dashboard(self):
+        """Display aggregate cost summary dashboard."""
+        self.console.print("\n")
+
+        # Create cost summary table
+        table = Table(title="💰 COST SUMMARY BY CATEGORY", box=box.ROUNDED, title_style="bold magenta")
+        table.add_column("Category", style="cyan bold", width=15)
+        table.add_column("Resources", justify="center", style="yellow", width=10)
+        table.add_column("Est. Monthly Cost", justify="right", style="green bold", width=18)
+
+        categories_display = {
+            'compute': '🖥️  Compute',
+            'database': '🗄️  Database',
+            'storage': '💾 Storage',
+            'networking': '🌐 Networking',
+            'serverless': '⚡ Serverless',
+            'other': '📦 Other'
+        }
+
+        total_resources = 0
+        for cat_key, cat_display in categories_display.items():
+            cat_data = self.cost_summary[cat_key]
+            if cat_data['count'] > 0:
+                table.add_row(
+                    cat_display,
+                    str(cat_data['count']),
+                    f"${cat_data['estimated_cost']:.2f}"
+                )
+                total_resources += cat_data['count']
+
+        # Add total row
+        table.add_section()
+        table.add_row(
+            "[bold]TOTAL[/bold]",
+            f"[bold]{total_resources}[/bold]",
+            f"[bold red]${self.total_estimated_cost:.2f}[/bold red]"
+        )
+
+        self.console.print(table)
+
+        # Show top cost drivers
+        all_resources = []
+        for cat_data in self.cost_summary.values():
+            all_resources.extend(cat_data['resources'])
+
+        all_resources.sort(key=lambda x: x['cost'], reverse=True)
+
+        if all_resources:
+            self.console.print("\n[bold yellow]🔥 Top 5 Cost Drivers:[/bold yellow]")
+            for i, res in enumerate(all_resources[:5], 1):
+                self.console.print(f"  {i}. {res['name']}: [red]${res['cost']:.2f}/mo[/red] ({res['count']} resource{'s' if res['count'] > 1 else ''})")
+
+        self.console.print()
+
+    def add_cost(self, category: str, resource_name: str, count: int, cost_per_unit: float):
+        """Track costs by category."""
+        if count > 0:
+            total_cost = count * cost_per_unit
+            self.cost_summary[category]['count'] += count
+            self.cost_summary[category]['estimated_cost'] += total_cost
+            self.cost_summary[category]['resources'].append({
+                'name': resource_name,
+                'count': count,
+                'cost': total_cost
+            })
+            self.total_estimated_cost += total_cost
+            self.total_resources += 1
 
     def print_count(self, resource_type: str, count: int):
         """Print resource count with color coding."""
         if count > 0:
-            self.console.print(f"[yellow]Found: {count} {resource_type}[/yellow]")
-            self.total_resources += 1
+            self.console.print(f"  [cyan]●[/cyan] {count} {resource_type}")
         else:
-            self.console.print(f"[green]No {resource_type} found[/green]")
+            self.console.print(f"  [dim]○ No {resource_type}[/dim]", end="")
+            return False
+        return True
 
     def estimate_cost(self, resource_type: str, count: int, cost_per_unit: float):
         """Print estimated monthly cost."""
         if count > 0:
             total = count * cost_per_unit
-            self.console.print(f"[red]  Estimated cost: ~${total:.2f}/month[/red]")
+            self.console.print(f"    [yellow]→ ~${total:.2f}/month[/yellow]")
 
     def check_eks_clusters(self):
         """Check EKS clusters."""
-        self.print_header("EKS CLUSTERS (~$73/month each)")
-
         try:
             eks = boto3.client('eks', region_name=self.region)
             clusters = eks.list_clusters()['clusters']
 
-            self.print_count("EKS cluster(s)", len(clusters))
+            if self.print_count("EKS cluster(s)", len(clusters)):
+                self.add_cost('compute', 'EKS Clusters', len(clusters), 73)
 
-            if clusters:
-                table = Table(show_header=True, box=box.SIMPLE)
-                table.add_column("Cluster Name", style="cyan")
-                table.add_column("Status", style="green")
-
+                # Compact display - just names and node count
                 for cluster_name in clusters:
-                    cluster_info = eks.describe_cluster(name=cluster_name)['cluster']
-                    table.add_row(cluster_name, cluster_info['status'])
-
-                    # List node groups
                     nodegroups = eks.list_nodegroups(clusterName=cluster_name)['nodegroups']
-                    if nodegroups:
-                        ng_table = Table(show_header=True, box=box.SIMPLE)
-                        ng_table.add_column("Node Group", style="cyan")
-                        ng_table.add_column("Instance Type")
-                        ng_table.add_column("Desired Size")
-
-                        for ng_name in nodegroups:
-                            ng_info = eks.describe_nodegroup(
-                                clusterName=cluster_name,
-                                nodegroupName=ng_name
-                            )['nodegroup']
-
-                            ng_table.add_row(
-                                ng_name,
-                                ng_info.get('instanceTypes', ['N/A'])[0],
-                                str(ng_info['scalingConfig']['desiredSize'])
-                            )
-
-                        self.console.print(ng_table)
-
-                self.console.print(table)
-                self.estimate_cost("EKS cluster(s)", len(clusters), 73)
+                    self.console.print(f"    [dim]├─[/dim] {cluster_name} [dim]({len(nodegroups)} node group{'s' if len(nodegroups) != 1 else ''})[/dim]")
 
         except ClientError as e:
-            self.console.print(f"[red]Error checking EKS: {e}[/red]")
+            self.console.print(f"  [red]✗ Error: {e.response['Error']['Code']}[/red]")
 
     def check_ec2_instances(self):
         """Check EC2 instances."""
-        self.print_header("EC2 INSTANCES")
-
         try:
             ec2 = boto3.client('ec2', region_name=self.region)
             response = ec2.describe_instances(
@@ -141,67 +191,32 @@ class AWSCostReporter:
             for reservation in response['Reservations']:
                 instances.extend(reservation['Instances'])
 
-            self.print_count("running EC2 instance(s)", len(instances))
+            if self.print_count("EC2 instance(s)", len(instances)):
+                # Estimate $25/month average
+                self.add_cost('compute', 'EC2 Instances', len(instances), 25)
 
-            if instances:
-                table = Table(show_header=True, box=box.SIMPLE)
-                table.add_column("Instance ID", style="cyan")
-                table.add_column("Type")
-                table.add_column("State", style="green")
-                table.add_column("Name")
-
+                # Compact display
                 for instance in instances:
-                    name = ""
-                    if 'Tags' in instance:
-                        name_tag = next((tag['Value'] for tag in instance['Tags'] if tag['Key'] == 'Name'), "")
-                        name = name_tag
-
-                    table.add_row(
-                        instance['InstanceId'],
-                        instance['InstanceType'],
-                        instance['State']['Name'],
-                        name
-                    )
-
-                self.console.print(table)
-                self.console.print("[yellow]  Note: Cost varies by type (t3.small ~$15/mo, t3.medium ~$30/mo)[/yellow]")
+                    name = next((tag['Value'] for tag in instance.get('Tags', []) if tag['Key'] == 'Name'), instance['InstanceId'])
+                    self.console.print(f"    [dim]├─[/dim] {name} [dim]({instance['InstanceType']})[/dim]")
 
         except ClientError as e:
-            self.console.print(f"[red]Error checking EC2: {e}[/red]")
+            self.console.print(f"  [red]✗ Error: {e.response['Error']['Code']}[/red]")
 
     def check_rds_databases(self):
         """Check RDS databases."""
-        self.print_header("RDS DATABASES")
-
         try:
             rds = boto3.client('rds', region_name=self.region)
-            response = rds.describe_db_instances()
-            instances = response['DBInstances']
+            instances = rds.describe_db_instances()['DBInstances']
 
-            self.print_count("RDS instance(s)", len(instances))
-
-            if instances:
-                table = Table(show_header=True, box=box.SIMPLE)
-                table.add_column("DB Instance", style="cyan")
-                table.add_column("Class")
-                table.add_column("Engine")
-                table.add_column("Status", style="green")
-                table.add_column("Storage (GB)")
+            if self.print_count("RDS instance(s)", len(instances)):
+                self.add_cost('database', 'RDS Databases', len(instances), 30)
 
                 for db in instances:
-                    table.add_row(
-                        db['DBInstanceIdentifier'],
-                        db['DBInstanceClass'],
-                        db['Engine'],
-                        db['DBInstanceStatus'],
-                        str(db['AllocatedStorage'])
-                    )
-
-                self.console.print(table)
-                self.console.print("[yellow]  Note: db.t3.micro ~$15/mo, db.t3.small ~$30/mo (plus storage)[/yellow]")
+                    self.console.print(f"    [dim]├─[/dim] {db['DBInstanceIdentifier']} [dim]({db['DBInstanceClass']}, {db['Engine']})[/dim]")
 
         except ClientError as e:
-            self.console.print(f"[red]Error checking RDS: {e}[/red]")
+            self.console.print(f"  [red]✗ Error: {e.response['Error']['Code']}[/red]")
 
     def check_bedrock(self):
         """Check AWS Bedrock provisioned throughput and custom models."""
@@ -258,73 +273,34 @@ class AWSCostReporter:
 
     def check_s3_buckets(self):
         """Check S3 buckets."""
-        self.print_header("S3 BUCKETS")
-
         try:
             s3 = boto3.client('s3')
-            response = s3.list_buckets()
-            buckets = response['Buckets']
+            buckets = s3.list_buckets()['Buckets']
 
-            self.print_count("S3 bucket(s)", len(buckets))
-
-            if buckets:
-                table = Table(show_header=True, box=box.SIMPLE)
-                table.add_column("Bucket Name", style="cyan")
-                table.add_column("Region")
-                table.add_column("Created")
+            if self.print_count("S3 bucket(s)", len(buckets)):
+                self.add_cost('storage', 'S3 Buckets', len(buckets), 1)  # Minimal baseline cost
 
                 for bucket in buckets:
-                    try:
-                        location = s3.get_bucket_location(Bucket=bucket['Name'])
-                        region = location['LocationConstraint'] or 'us-east-1'
-                    except:
-                        region = 'Unknown'
-
-                    table.add_row(
-                        bucket['Name'],
-                        region,
-                        bucket['CreationDate'].strftime('%Y-%m-%d')
-                    )
-
-                self.console.print(table)
-                self.console.print("[yellow]  Note: S3 costs ~$0.023/GB/month (Standard storage)[/yellow]")
+                    self.console.print(f"    [dim]├─[/dim] {bucket['Name']}")
 
         except ClientError as e:
-            self.console.print(f"[red]Error checking S3: {e}[/red]")
+            self.console.print(f"  [red]✗ Error: {e.response['Error']['Code']}[/red]")
 
     def check_ecr_repositories(self):
         """Check ECR repositories."""
-        self.print_header("ECR REPOSITORIES")
-
         try:
             ecr = boto3.client('ecr', region_name=self.region)
-            response = ecr.describe_repositories()
-            repositories = response['repositories']
+            repositories = ecr.describe_repositories()['repositories']
 
-            self.print_count("ECR repository/repositories", len(repositories))
-
-            if repositories:
-                table = Table(show_header=True, box=box.SIMPLE)
-                table.add_column("Repository Name", style="cyan")
-                table.add_column("URI")
-                table.add_column("Images")
+            if self.print_count("ECR repository/repositories", len(repositories)):
+                self.add_cost('storage', 'ECR Repositories', len(repositories), 2)  # Baseline ~2GB per repo
 
                 for repo in repositories:
-                    repo_name = repo['repositoryName']
-                    images = ecr.list_images(repositoryName=repo_name)
-                    image_count = len(images['imageIds'])
-
-                    table.add_row(
-                        repo_name,
-                        repo['repositoryUri'],
-                        str(image_count)
-                    )
-
-                self.console.print(table)
-                self.console.print("[yellow]  Note: ECR costs $0.10/GB/month for storage[/yellow]")
+                    images = ecr.list_images(repositoryName=repo['repositoryName'])
+                    self.console.print(f"    [dim]├─[/dim] {repo['repositoryName']} [dim]({len(images['imageIds'])} images)[/dim]")
 
         except ClientError as e:
-            self.console.print(f"[red]Error checking ECR: {e}[/red]")
+            self.console.print(f"  [red]✗ Error: {e.response['Error']['Code']}[/red]")
 
     def check_ecs_clusters(self):
         """Check ECS clusters and services."""
@@ -356,38 +332,19 @@ class AWSCostReporter:
 
     def check_load_balancers(self):
         """Check Application and Network Load Balancers."""
-        self.print_header("LOAD BALANCERS")
-
         try:
             elbv2 = boto3.client('elbv2', region_name=self.region)
             lbs = elbv2.describe_load_balancers()['LoadBalancers']
 
-            albs = [lb for lb in lbs if lb['Type'] == 'application']
-            nlbs = [lb for lb in lbs if lb['Type'] == 'network']
-
-            self.print_count("Application Load Balancer(s)", len(albs))
-            self.print_count("Network Load Balancer(s)", len(nlbs))
-
-            if lbs:
-                table = Table(show_header=True, box=box.SIMPLE)
-                table.add_column("Name", style="cyan")
-                table.add_column("Type")
-                table.add_column("Scheme")
-                table.add_column("State", style="green")
+            if self.print_count("Load Balancer(s)", len(lbs)):
+                self.add_cost('networking', 'Load Balancers', len(lbs), 16)
 
                 for lb in lbs:
-                    table.add_row(
-                        lb['LoadBalancerName'],
-                        lb['Type'],
-                        lb['Scheme'],
-                        lb['State']['Code']
-                    )
-
-                self.console.print(table)
-                self.estimate_cost("Load Balancer(s)", len(lbs), 16)
+                    lb_type = "ALB" if lb['Type'] == 'application' else "NLB"
+                    self.console.print(f"    [dim]├─[/dim] {lb['LoadBalancerName']} [dim]({lb_type})[/dim]")
 
         except ClientError as e:
-            self.console.print(f"[red]Error checking Load Balancers: {e}[/red]")
+            self.console.print(f"  [red]✗ Error: {e.response['Error']['Code']}[/red]")
 
     def check_cloudfront(self):
         """Check CloudFront distributions."""
@@ -455,71 +412,34 @@ class AWSCostReporter:
 
     def check_nat_gateways(self):
         """Check NAT Gateways."""
-        self.print_header("NAT GATEWAYS")
-
         try:
             ec2 = boto3.client('ec2', region_name=self.region)
             nat_gateways = ec2.describe_nat_gateways(
                 Filters=[{'Name': 'state', 'Values': ['available']}]
             )['NatGateways']
 
-            self.print_count("NAT Gateway(s)", len(nat_gateways))
-
-            if nat_gateways:
-                table = Table(show_header=True, box=box.SIMPLE)
-                table.add_column("NAT Gateway ID", style="cyan")
-                table.add_column("State", style="green")
-                table.add_column("VPC ID")
-                table.add_column("Subnet ID")
+            if self.print_count("NAT Gateway(s)", len(nat_gateways)):
+                self.add_cost('networking', 'NAT Gateways', len(nat_gateways), 32)
 
                 for nat in nat_gateways:
-                    table.add_row(
-                        nat['NatGatewayId'],
-                        nat['State'],
-                        nat['VpcId'],
-                        nat['SubnetId']
-                    )
-
-                self.console.print(table)
-                self.estimate_cost("NAT Gateway(s)", len(nat_gateways), 32)
+                    self.console.print(f"    [dim]├─[/dim] {nat['NatGatewayId']} [dim](VPC: {nat['VpcId']})[/dim]")
 
         except ClientError as e:
-            self.console.print(f"[red]Error checking NAT Gateways: {e}[/red]")
+            self.console.print(f"  [red]✗ Error: {e.response['Error']['Code']}[/red]")
 
     def check_ebs_volumes(self):
         """Check EBS volumes."""
-        self.print_header("EBS VOLUMES")
-
         try:
             ec2 = boto3.client('ec2', region_name=self.region)
             volumes = ec2.describe_volumes()['Volumes']
 
-            self.print_count("EBS volume(s)", len(volumes))
-
-            if volumes:
+            if self.print_count("EBS volume(s)", len(volumes)):
                 total_size = sum(vol['Size'] for vol in volumes)
-                self.console.print(f"  Total storage: [yellow]{total_size} GB[/yellow]")
-
-                table = Table(show_header=True, box=box.SIMPLE)
-                table.add_column("Volume ID", style="cyan")
-                table.add_column("Size (GB)")
-                table.add_column("Type")
-                table.add_column("State", style="green")
-
-                for vol in volumes:
-                    table.add_row(
-                        vol['VolumeId'],
-                        str(vol['Size']),
-                        vol['VolumeType'],
-                        vol['State']
-                    )
-
-                self.console.print(table)
-                storage_cost = total_size * 0.08
-                self.console.print(f"[red]  Estimated cost: ~${storage_cost:.2f}/month (gp3 @ $0.08/GB)[/red]")
+                self.add_cost('storage', 'EBS Volumes', total_size, 0.08)
+                self.console.print(f"    [yellow]→ Total: {total_size} GB[/yellow]")
 
         except ClientError as e:
-            self.console.print(f"[red]Error checking EBS: {e}[/red]")
+            self.console.print(f"  [red]✗ Error: {e.response['Error']['Code']}[/red]")
 
     def check_elastic_ips(self):
         """Check unattached Elastic IPs."""
@@ -652,35 +572,20 @@ class AWSCostReporter:
 
     def check_lambda_functions(self):
         """Check Lambda functions."""
-        self.print_header("LAMBDA FUNCTIONS")
-
         try:
             lambda_client = boto3.client('lambda', region_name=self.region)
-            response = lambda_client.list_functions()
-            functions = response['Functions']
+            functions = lambda_client.list_functions()['Functions']
 
-            self.print_count("Lambda function(s)", len(functions))
+            if self.print_count("Lambda function(s)", len(functions)):
+                self.add_cost('serverless', 'Lambda Functions', len(functions), 0.5)  # Minimal baseline
 
-            if functions:
-                table = Table(show_header=True, box=box.SIMPLE)
-                table.add_column("Function Name", style="cyan")
-                table.add_column("Runtime")
-                table.add_column("Memory (MB)")
-                table.add_column("Last Modified")
-
-                for func in functions:
-                    table.add_row(
-                        func['FunctionName'],
-                        func['Runtime'],
-                        str(func['MemorySize']),
-                        func['LastModified'][:10]
-                    )
-
-                self.console.print(table)
-                self.console.print("[green]  Note: Lambda is pay-per-invocation (usually very low cost unless heavily used)[/green]")
+                for func in functions[:5]:  # Show first 5
+                    self.console.print(f"    [dim]├─[/dim] {func['FunctionName']} [dim]({func['Runtime']})[/dim]")
+                if len(functions) > 5:
+                    self.console.print(f"    [dim]└─ ...and {len(functions) - 5} more[/dim]")
 
         except ClientError as e:
-            self.console.print(f"[red]Error checking Lambda: {e}[/red]")
+            self.console.print(f"  [red]✗ Error: {e.response['Error']['Code']}[/red]")
 
     def check_elasticache(self):
         """Check ElastiCache clusters."""
@@ -798,7 +703,7 @@ class AWSCostReporter:
 
     def get_month_to_date_costs(self):
         """Get month-to-date costs and forecast."""
-        self.print_header("MONTH-TO-DATE COSTS")
+        self.print_header("ACTUAL AWS COSTS")
 
         try:
             ce = boto3.client('ce', region_name='us-east-1')  # Cost Explorer is always us-east-1
@@ -807,8 +712,6 @@ class AWSCostReporter:
             today = datetime.now()
             month_start = today.replace(day=1).strftime('%Y-%m-%d')
             month_end = today.strftime('%Y-%m-%d')
-
-            self.console.print(f"Querying Cost Explorer for: {month_start} to {month_end}\n")
 
             # Get month-to-date costs
             response = ce.get_cost_and_usage(
@@ -822,7 +725,15 @@ class AWSCostReporter:
 
             mtd_cost = float(response['ResultsByTime'][0]['Total']['UnblendedCost']['Amount'])
 
-            self.console.print(f"[green bold]Month-to-date cost: ${mtd_cost:.2f} USD[/green bold]")
+            # Create prominent cost display
+            cost_panel = Panel.fit(
+                f"[bold cyan]MONTH-TO-DATE COST[/bold cyan]\n\n"
+                f"[bold green]${mtd_cost:.2f} USD[/bold green]\n\n"
+                f"[dim]{month_start} to {month_end}[/dim]",
+                border_style="bright_blue",
+                padding=(1, 2)
+            )
+            self.console.print("\n", cost_panel)
 
             # Get top 5 services
             response_by_service = ce.get_cost_and_usage(
@@ -851,11 +762,21 @@ class AWSCostReporter:
 
             self.console.print(table)
 
-            # Spending warning
+            # Spending warning with colored panel
             if mtd_cost > 100:
-                self.console.print("\n[red bold]WARNING: Month-to-date cost exceeds $100[/red bold]")
+                warning_panel = Panel(
+                    "[bold white]⚠️  WARNING: Month-to-date cost exceeds $100[/bold white]",
+                    border_style="red bold",
+                    padding=(0, 1)
+                )
+                self.console.print("\n", warning_panel)
             elif mtd_cost > 50:
-                self.console.print("\n[yellow]⚠️  Moderate spending detected[/yellow]")
+                warning_panel = Panel(
+                    "[bold black]⚠️  Moderate spending detected[/bold black]",
+                    border_style="yellow",
+                    padding=(0, 1)
+                )
+                self.console.print("\n", warning_panel)
             else:
                 self.console.print("\n[green]✓ Spending is within normal range[/green]")
 
@@ -898,58 +819,44 @@ class AWSCostReporter:
 
         self.console.print(f"[green]✓ Authenticated as account: {account}[/green]\n")
 
-        # Run checks
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=self.console,
-        ) as progress:
+        # Run checks grouped by category
+        self.console.print("\n[bold magenta]🖥️  COMPUTE RESOURCES[/bold magenta]")
+        self.check_eks_clusters()
+        self.check_ec2_instances()
+        self.check_ecs_clusters()
 
-            tasks = [
-                ("Checking EKS clusters...", self.check_eks_clusters),
-                ("Checking EC2 instances...", self.check_ec2_instances),
-                ("Checking ECS clusters...", self.check_ecs_clusters),
-                ("Checking RDS databases...", self.check_rds_databases),
-                ("Checking AWS Bedrock...", self.check_bedrock),
-                ("Checking Load Balancers...", self.check_load_balancers),
-                ("Checking CloudFront...", self.check_cloudfront),
-                ("Checking Route53...", self.check_route53),
-                ("Checking NAT Gateways...", self.check_nat_gateways),
-                ("Checking EBS volumes...", self.check_ebs_volumes),
-                ("Checking Elastic IPs...", self.check_elastic_ips),
-                ("Checking VPCs...", self.check_vpcs),
-                ("Checking S3 buckets...", self.check_s3_buckets),
-                ("Checking ECR repositories...", self.check_ecr_repositories),
-                ("Checking Secrets Manager...", self.check_secrets_manager),
-                ("Checking CloudWatch Logs...", self.check_cloudwatch_logs),
-                ("Checking Lambda functions...", self.check_lambda_functions),
-                ("Checking ElastiCache...", self.check_elasticache),
-                ("Checking ACM certificates...", self.check_acm_certificates),
-            ]
+        self.console.print("\n[bold magenta]🗄️  DATABASE & STORAGE[/bold magenta]")
+        self.check_rds_databases()
+        self.check_elasticache()
+        self.check_s3_buckets()
+        self.check_ecr_repositories()
+        self.check_ebs_volumes()
 
-            for desc, func in tasks:
-                task = progress.add_task(desc, total=None)
-                func()
-                progress.remove_task(task)
+        self.console.print("\n[bold magenta]🌐 NETWORKING[/bold magenta]")
+        self.check_load_balancers()
+        self.check_nat_gateways()
+        self.check_cloudfront()
+        self.check_route53()
+        self.check_elastic_ips()
+        self.check_vpcs()
 
-        # Get costs
+        self.console.print("\n[bold magenta]⚡ SERVERLESS & OTHER[/bold magenta]")
+        self.check_lambda_functions()
+        self.check_bedrock()
+        self.check_secrets_manager()
+        self.check_cloudwatch_logs()
+        self.check_acm_certificates()
+
+        # Display cost dashboard first
+        self.display_cost_dashboard()
+
+        # Get actual costs
         self.get_month_to_date_costs()
 
         # Check budgets
         self.check_budgets()
 
-        # Summary
-        self.print_header("SUMMARY")
-        self.console.print(f"[yellow]Total resource types with active resources: {self.total_resources}[/yellow]\n")
-
-        self.console.print("[cyan bold]Major cost drivers to watch:[/cyan bold]")
-        self.console.print("  1. EKS Clusters: $73/month per cluster (control plane only)")
-        self.console.print("  2. EC2/EKS Nodes: $15-30+/month per instance")
-        self.console.print("  3. NAT Gateways: $32/month each")
-        self.console.print("  4. Load Balancers: $16/month each (ALB/NLB)")
-        self.console.print("  5. RDS Databases: $15-100+/month depending on size")
-
-        self.console.print("\n[green bold]Report complete![/green bold]")
+        self.console.print("\n[green bold]✓ Report complete![/green bold]")
 
 
 def main():
