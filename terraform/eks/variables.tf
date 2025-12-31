@@ -18,8 +18,9 @@ variable "cluster_name" {
 }
 
 variable "oidc_provider_arn" {
-  description = "ARN of the OIDC provider for the EKS cluster (for IRSA)"
+  description = "ARN of the OIDC provider for the EKS cluster (for IRSA). If not provided, will be automatically derived from the EKS cluster."
   type        = string
+  default     = ""
 }
 
 # Namespace Configuration

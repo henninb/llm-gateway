@@ -1,9 +1,19 @@
 # IAM Role for Service Account (IRSA) for LiteLLM
 # This allows LiteLLM to access AWS Bedrock
 
+# Get current AWS account ID
+data "aws_caller_identity" "current" {}
+
+# Local variables to derive OIDC provider ARN from EKS cluster if not provided
+locals {
+  # Extract OIDC issuer URL from EKS cluster and convert to ARN
+  oidc_provider_url = replace(data.aws_eks_cluster.cluster.identity[0].oidc[0].issuer, "https://", "")
+  oidc_provider_arn = var.oidc_provider_arn != "" ? var.oidc_provider_arn : "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${local.oidc_provider_url}"
+}
+
 # Data source for OIDC provider (from eks-cluster)
 data "aws_iam_openid_connect_provider" "eks" {
-  arn = var.oidc_provider_arn
+  arn = local.oidc_provider_arn
 }
 
 # IAM Policy for LiteLLM - Bedrock access
