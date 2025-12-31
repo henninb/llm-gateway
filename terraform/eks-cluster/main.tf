@@ -297,3 +297,19 @@ resource "aws_eks_addon" "ebs_csi_driver" {
     aws_iam_role_policy_attachment.ebs_csi_driver
   ]
 }
+
+# VPC CNI Addon with Network Policy Support
+# Enables Kubernetes NetworkPolicy enforcement
+resource "aws_eks_addon" "vpc_cni" {
+  cluster_name = aws_eks_cluster.main.name
+  addon_name   = "vpc-cni"
+
+  # Enable network policy support
+  configuration_values = jsonencode({
+    enableNetworkPolicy = "true"
+  })
+
+  depends_on = [
+    aws_eks_node_group.main
+  ]
+}
