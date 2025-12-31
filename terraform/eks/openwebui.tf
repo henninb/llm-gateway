@@ -187,9 +187,8 @@ resource "kubernetes_service" "openwebui" {
         "service.beta.kubernetes.io/aws-load-balancer-scheme" = "internet-facing"
       },
       var.acm_certificate_arn != "" ? {
-        "service.beta.kubernetes.io/aws-load-balancer-ssl-cert"              = var.acm_certificate_arn
-        "service.beta.kubernetes.io/aws-load-balancer-ssl-ports"             = "443"
-        "service.beta.kubernetes.io/aws-load-balancer-backend-protocol"      = "tcp"
+        "service.beta.kubernetes.io/aws-load-balancer-ssl-cert"               = var.acm_certificate_arn
+        "service.beta.kubernetes.io/aws-load-balancer-ssl-ports"              = "443"
         "service.beta.kubernetes.io/aws-load-balancer-ssl-negotiation-policy" = "ELBSecurityPolicy-TLS13-1-2-2021-06"
       } : {}
     )
