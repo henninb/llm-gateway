@@ -10,6 +10,10 @@ RUN groupadd -g 1000 openwebui && \
 # Change ownership of entire app directory to non-root user
 RUN chown -R openwebui:openwebui /app
 
+# Configure Arena models for blind comparison
+# 1 Perplexity, 1 AWS, 1 Meta model
+ENV EVALUATION_ARENA_MODELS='["perplexity-sonar-pro","nova-pro","llama3-2-3b"]'
+
 # Switch to non-root user
 USER openwebui
 

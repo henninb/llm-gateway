@@ -121,6 +121,11 @@ resource "kubernetes_deployment" "openwebui" {
             value = "OpenWebUI"
           }
 
+          env {
+            name  = "EVALUATION_ARENA_MODELS"
+            value = jsonencode(["perplexity-sonar-pro", "nova-pro", "llama3-2-3b"])
+          }
+
           resources {
             requests = {
               cpu    = var.openwebui_cpu_request
