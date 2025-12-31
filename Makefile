@@ -46,6 +46,9 @@ test-all: ## Run all tests (setup validation, health check, model tests)
 	@echo ""
 	@make test-models
 
+aws-costs: ## Generate AWS cost report for current resources
+	@AWS_REGION=$(AWS_REGION) sh tools/report-aws-costs.sh
+
 local-destroy: ## Destroy local Docker containers, volumes, networks, and images
 	@echo "Stopping and removing containers, volumes, and networks..."
 	@docker-compose down -v --rmi local
