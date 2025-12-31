@@ -1,0 +1,8 @@
+# Python dependencies for LLM Gateway tools
+# Install with: pip install -r requirements.txt
+
+# AWS SDK for Python - used by cost reporting tool
+boto3>=1.34.0
+
+# Rich terminal formatting - used for enhanced output
+rich>=13.7.0

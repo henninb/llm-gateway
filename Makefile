@@ -46,8 +46,11 @@ test-all: ## Run all tests (setup validation, health check, model tests)
 	@echo ""
 	@make test-models
 
-aws-costs: ## Generate AWS cost report for current resources
+aws-costs: ## Generate AWS cost report for current resources (shell version)
 	@AWS_REGION=$(AWS_REGION) sh tools/report-aws-costs.sh
+
+aws-costs-py: ## Generate AWS cost report (Python version with rich formatting)
+	@AWS_REGION=$(AWS_REGION) python3 tools/report-aws-costs.py
 
 local-destroy: ## Destroy local Docker containers, volumes, networks, and images
 	@echo "Stopping and removing containers, volumes, and networks..."
