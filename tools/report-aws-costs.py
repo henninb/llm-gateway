@@ -709,9 +709,18 @@ class AWSCostReporter:
             ce = boto3.client('ce', region_name='us-east-1')  # Cost Explorer is always us-east-1
 
             # Get current month dates
+            # AWS Cost Explorer API uses exclusive end dates, so we need tomorrow's date
             today = datetime.now()
             month_start = today.replace(day=1).strftime('%Y-%m-%d')
-            month_end = today.strftime('%Y-%m-%d')
+            tomorrow = today + timedelta(days=1)
+            month_end = tomorrow.strftime('%Y-%m-%d')
+
+            # Get previous month dates
+            first_day_this_month = today.replace(day=1)
+            last_day_prev_month = first_day_this_month - timedelta(days=1)
+            prev_month_start = last_day_prev_month.replace(day=1).strftime('%Y-%m-%d')
+            prev_month_end = first_day_this_month.strftime('%Y-%m-%d')  # Exclusive end date
+            prev_month_name = last_day_prev_month.strftime('%B %Y')
 
             # Get month-to-date costs
             response = ce.get_cost_and_usage(
@@ -725,11 +734,27 @@ class AWSCostReporter:
 
             mtd_cost = float(response['ResultsByTime'][0]['Total']['UnblendedCost']['Amount'])
 
-            # Create prominent cost display
+            # Get previous month's total cost
+            prev_month_cost = 0.0
+            try:
+                response_prev = ce.get_cost_and_usage(
+                    TimePeriod={
+                        'Start': prev_month_start,
+                        'End': prev_month_end
+                    },
+                    Granularity='MONTHLY',
+                    Metrics=['UnblendedCost']
+                )
+                prev_month_cost = float(response_prev['ResultsByTime'][0]['Total']['UnblendedCost']['Amount'])
+            except (KeyError, IndexError, ClientError):
+                pass  # If previous month data unavailable, show $0.00
+
+            # Create prominent cost display with previous month
             cost_panel = Panel.fit(
                 f"[bold cyan]MONTH-TO-DATE COST[/bold cyan]\n\n"
                 f"[bold green]${mtd_cost:.2f} USD[/bold green]\n\n"
-                f"[dim]{month_start} to {month_end}[/dim]",
+                f"[dim]{month_start} to {month_end}[/dim]\n\n"
+                f"[dim]Previous month ({prev_month_name}): ${prev_month_cost:.2f}[/dim]",
                 border_style="bright_blue",
                 padding=(1, 2)
             )

@@ -615,8 +615,9 @@ printf "\n"
 print_header "MONTH-TO-DATE COSTS"
 
 # Get current month dates
+# AWS Cost Explorer API uses exclusive end dates, so we need tomorrow's date
 MONTH_START=$(date -d "$(date +%Y-%m-01)" +%Y-%m-%d 2>/dev/null || date -v1d +%Y-%m-%d 2>/dev/null || date +%Y-%m-01)
-MONTH_END=$(date +%Y-%m-%d)
+MONTH_END=$(date -d "tomorrow" +%Y-%m-%d 2>/dev/null || date -v+1d +%Y-%m-%d 2>/dev/null)
 
 printf "Querying Cost Explorer for: %s to %s\n" "$MONTH_START" "$MONTH_END"
 echo ""
@@ -662,7 +663,7 @@ if [ "$MTD_COST" != "error" ] && [ -n "$MTD_COST" ]; then
         --metrics UnblendedCost \
         --group-by Type=DIMENSION,Key=SERVICE \
         --query 'ResultsByTime[0].Groups[:5].[Keys[0],Metrics.UnblendedCost.Amount]' \
-        --output text 2>/dev/null | while read -r service cost; do
+        --output text 2>/dev/null | while IFS= read -r service cost; do
             if [ -n "$cost" ] && [ "$cost" != "0" ]; then
                 cost_rounded=$(printf "%.4f" "$cost" 2>/dev/null || echo "$cost")
                 printf "  - %s: \$%s\n" "$service" "$cost_rounded"
