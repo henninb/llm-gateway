@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Production LiteLLM API Test Script
-# Tests the live deployment at https://openwebui.bhenning.com
+# Tests the live EKS deployment via port-forwarding
 #
 # This script demonstrates:
 # - IRSA authentication (no static AWS keys)
@@ -9,7 +9,13 @@
 # - Zero-trust network isolation
 # - Production API endpoint testing
 #
+# IMPORTANT: This script requires port-forwarding to be active
+#
 # Usage:
+#   # Terminal 1: Start port-forwarding
+#   make eks-port-forward
+#
+#   # Terminal 2: Run tests
 #   export LITELLM_MASTER_KEY=your-production-key
 #   ./tests/test-production.sh
 
@@ -20,8 +26,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Production endpoint
-ENDPOINT="https://openwebui.bhenning.com"
+# Production endpoint (via port-forward)
+# Note: LiteLLM is not exposed to the internet for security reasons
+# It's only accessible internally to OpenWebUI or via kubectl port-forward
+ENDPOINT="${ENDPOINT:-http://localhost:4000}"
 
 printf "%b========================================%b\n" "$BLUE" "$NC"
 printf "%bLiteLLM Production API Test%b\n" "$BLUE" "$NC"
@@ -37,6 +45,21 @@ if [ -z "$LITELLM_MASTER_KEY" ]; then
   printf "%bERROR: LITELLM_MASTER_KEY not set%b\n" "$RED" "$NC"
   printf "Set it via: export LITELLM_MASTER_KEY=your-production-key\n"
   exit 1
+fi
+
+# Check if port-forward is active (only if using localhost)
+if echo "$ENDPOINT" | grep -q "localhost"; then
+  if ! curl -s --max-time 2 "$ENDPOINT/health" > /dev/null 2>&1; then
+    printf "%bERROR: Cannot reach LiteLLM at %s%b\n" "$RED" "$ENDPOINT" "$NC"
+    printf "\n"
+    printf "LiteLLM is not exposed to the internet for security reasons.\n"
+    printf "You need to set up port-forwarding first:\n"
+    printf "\n"
+    printf "  Terminal 1: %bmake eks-port-forward%b\n" "$GREEN" "$NC"
+    printf "  Terminal 2: %b./tests/test-production.sh%b\n" "$GREEN" "$NC"
+    printf "\n"
+    exit 1
+  fi
 fi
 
 # Track results
@@ -157,6 +180,14 @@ printf "  • Storage: EBS persistent volumes\n"
 printf "  • Networking: VPC with private subnets\n"
 printf "  • Load Balancer: NLB with SSL termination\n"
 printf "  • IaC: 100%% Terraform managed\n"
+printf "\n"
+
+# Security architecture note
+printf "%bSecurity Architecture:%b\n" "$BLUE" "$NC"
+printf "  • LiteLLM is NOT exposed to the internet (ClusterIP service)\n"
+printf "  • Only OpenWebUI is publicly accessible via LoadBalancer\n"
+printf "  • OpenWebUI connects to LiteLLM internally within the cluster\n"
+printf "  • API testing requires port-forwarding: make eks-port-forward\n"
 printf "\n"
 
 # Exit status
