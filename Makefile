@@ -2,6 +2,7 @@
 ENDPOINT ?= http://localhost:4000
 AWS_REGION ?= us-east-1
 CLUSTER_NAME ?= llm-gateway-eks
+DOMAIN ?= openwebui.bhenning.com
 
 .DEFAULT_GOAL := help
 
@@ -174,3 +175,74 @@ eks-destroy: ## Destroy EKS deployment
 eks-port-forward: ## Forward LiteLLM from EKS to localhost:4000 (Ctrl+C to stop)
 	@echo "Forwarding localhost:4000 -> llm-gateway/litellm:80 (press Ctrl+C to stop)"
 	@kubectl port-forward -n llm-gateway svc/litellm 4000:80
+
+eks-verify-dns: ## Verify CloudFlare DNS is configured (optionally set DOMAIN=your-domain.com)
+	@echo "=== Verifying DNS Configuration for $(DOMAIN) ==="
+	@echo ""
+	@echo "1. Getting LoadBalancer hostname from Kubernetes..."
+	@echo "  Command: kubectl get svc openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'"
+	@LB_HOSTNAME=$$(kubectl get svc openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null); \
+	if [ -z "$$LB_HOSTNAME" ]; then \
+		echo "✗ Error: Could not get LoadBalancer hostname from Kubernetes"; \
+		echo "  Make sure the openwebui service is deployed: kubectl get svc -n llm-gateway"; \
+		exit 1; \
+	fi; \
+	echo "  LoadBalancer: $$LB_HOSTNAME"; \
+	echo ""; \
+	echo "2. Resolving $(DOMAIN)..."; \
+	echo "  Command: dig +short $(DOMAIN)"; \
+	DNS_RESULT=$$(dig +short $(DOMAIN) 2>/dev/null | head -1); \
+	if [ -z "$$DNS_RESULT" ]; then \
+		echo "✗ Error: $(DOMAIN) does not resolve to any address"; \
+		echo ""; \
+		echo "Action required:"; \
+		echo "  1. Log into CloudFlare dashboard"; \
+		echo "  2. Create CNAME record:"; \
+		echo "     - Type: CNAME"; \
+		echo "     - Name: $$(echo $(DOMAIN) | cut -d. -f1)"; \
+		echo "     - Target: $$LB_HOSTNAME"; \
+		echo "     - Proxy status: DNS only (gray cloud)"; \
+		exit 1; \
+	fi; \
+	echo "  DNS resolves to: $$DNS_RESULT"; \
+	echo ""; \
+	echo "3. Checking CNAME record..."; \
+	echo "  Command: dig +short CNAME $(DOMAIN)"; \
+	CNAME_RESULT=$$(dig +short CNAME $(DOMAIN) 2>/dev/null); \
+	if [ -n "$$CNAME_RESULT" ]; then \
+		echo "  CNAME: $(DOMAIN) -> $$CNAME_RESULT"; \
+		if echo "$$CNAME_RESULT" | grep -q "$$LB_HOSTNAME"; then \
+			echo ""; \
+			echo "✓ DNS Configuration is correct!"; \
+			echo "  $(DOMAIN) points to the correct LoadBalancer"; \
+		else \
+			echo ""; \
+			echo "⚠ Warning: CNAME points to different target"; \
+			echo "  Expected: $$LB_HOSTNAME"; \
+			echo "  Actual:   $$CNAME_RESULT"; \
+			echo ""; \
+			echo "Action required:"; \
+			echo "  Update the CNAME record in CloudFlare to point to: $$LB_HOSTNAME"; \
+		fi; \
+	else \
+		echo "  No CNAME record found (might be A record or CloudFlare proxied)"; \
+		echo ""; \
+		echo "⚠ Recommendation: Use CNAME record instead of A record"; \
+		echo "  This allows the DNS to automatically follow LoadBalancer changes"; \
+		echo ""; \
+		echo "  Current IP: $$DNS_RESULT"; \
+		echo "  LoadBalancer: $$LB_HOSTNAME"; \
+	fi; \
+	echo ""; \
+	echo "4. Testing HTTPS connectivity..."; \
+	echo "  Command: curl -s -o /dev/null -w \"%{http_code}\" --max-time 10 https://$(DOMAIN)"; \
+	if curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://$(DOMAIN) 2>/dev/null | grep -q "^[23]"; then \
+		echo "✓ HTTPS endpoint is reachable (returns 2xx or 3xx)"; \
+	else \
+		HTTP_CODE=$$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://$(DOMAIN) 2>/dev/null || echo "000"); \
+		if [ "$$HTTP_CODE" = "000" ]; then \
+			echo "✗ HTTPS endpoint is not reachable (connection failed)"; \
+		else \
+			echo "⚠ HTTPS endpoint returned HTTP $$HTTP_CODE"; \
+		fi; \
+	fi
