@@ -158,6 +158,7 @@ make eks-apply            # Deploy applications to EKS
 make eks-destroy          # Destroy EKS deployment
 make eks-secrets-populate # Populate AWS Secrets Manager with API keys
 make eks-port-forward     # Forward LiteLLM from EKS to localhost:4000
+make eks-verify-dns       # Verify CloudFlare DNS configuration
 ```
 
 ## AWS EKS Deployment
@@ -209,16 +210,22 @@ make eks-apply
 
 ### Step 5: Configure DNS
 
-Get the LoadBalancer DNS:
+Get the LoadBalancer DNS and verify configuration:
 ```bash
-kubectl get svc openwebui -n llm-gateway
+# Verify DNS configuration (checks LoadBalancer, DNS, CNAME, and HTTPS)
+make eks-verify-dns
+
+# Or specify a custom domain
+DOMAIN=openwebui.yourdomain.com make eks-verify-dns
 ```
 
-Create a CNAME record in CloudFlare:
+If DNS is not configured, create a CNAME record in CloudFlare:
 - Type: CNAME
-- Name: openwebui
-- Target: [LoadBalancer DNS from above]
-- Proxy status: DNS only
+- Name: openwebui (or your subdomain)
+- Target: [LoadBalancer DNS shown by eks-verify-dns]
+- Proxy status: DNS only (gray cloud icon)
+
+Then run the verification command again to confirm the configuration is correct.
 
 ## Configuration
 
@@ -332,8 +339,13 @@ ENDPOINT=http://192.168.1.10:4000 ./tests/test-litellm-api.py
 
 #### Test Production Deployment
 
+**Important**: LiteLLM is not exposed to the internet for security reasons. It's only accessible internally to OpenWebUI or via port-forwarding.
+
 ```bash
-# Test production endpoint
+# Terminal 1: Start port-forwarding
+make eks-port-forward
+
+# Terminal 2: Run tests
 export LITELLM_MASTER_KEY=your-production-key
 ./tests/test-production.sh
 ```
@@ -341,8 +353,8 @@ export LITELLM_MASTER_KEY=your-production-key
 This validates:
 - ✅ IRSA authentication (no static AWS keys)
 - ✅ Multi-provider access (AWS Bedrock + Perplexity)
-- ✅ Zero-trust network policies
-- ✅ HTTPS/TLS encryption
+- ✅ Zero-trust network policies (LiteLLM internal-only)
+- ✅ Production EKS deployment
 - ✅ All 7 configured models
 
 #### Manual cURL Testing
@@ -455,6 +467,26 @@ make local-port-forward
 ```
 
 Both commands forward LiteLLM to `localhost:4000` for testing with curl or Python scripts. Press Ctrl+C to stop forwarding.
+
+### DNS Verification
+
+Verify CloudFlare DNS is correctly configured:
+
+```bash
+# Verify default domain (openwebui.bhenning.com)
+make eks-verify-dns
+
+# Verify custom domain
+DOMAIN=openwebui.yourdomain.com make eks-verify-dns
+```
+
+This command checks:
+1. **LoadBalancer hostname** from Kubernetes service
+2. **DNS resolution** of your domain
+3. **CNAME record** configuration in CloudFlare
+4. **HTTPS connectivity** to the endpoint
+
+The command displays the actual `kubectl`, `dig`, and `curl` commands being executed for full transparency. If any issues are found, it provides specific instructions to fix them.
 
 ## Troubleshooting
 
