@@ -263,6 +263,91 @@ curl https://openwebui.bhenning.com/v1/chat/completions \
   }'
 ```
 
+## Testing
+
+### Automated Test Suite
+
+The project includes comprehensive test scripts to validate LiteLLM deployment and model access:
+
+#### Test Local Deployment
+
+```bash
+# Test all models with shell script
+./tests/test-models.sh
+
+# Test all models with Python script
+python tests/test-litellm-api.py
+
+# Test with custom endpoint
+LITELLM_ENDPOINT=http://192.168.1.10:4000 python tests/test-litellm-api.py
+```
+
+#### Test Production Deployment
+
+```bash
+# Test production endpoint
+export LITELLM_MASTER_KEY=your-production-key
+./tests/test-production.sh
+```
+
+This validates:
+- ✅ IRSA authentication (no static AWS keys)
+- ✅ Multi-provider access (AWS Bedrock + Perplexity)
+- ✅ Zero-trust network policies
+- ✅ HTTPS/TLS encryption
+- ✅ All 7 configured models
+
+#### Manual cURL Testing
+
+```bash
+# Run interactive curl examples
+export LITELLM_MASTER_KEY=your-key
+source tests/curl-examples.sh
+```
+
+Or test individual models:
+
+```bash
+# Test Amazon Nova Pro (AWS Bedrock via IRSA)
+curl http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"nova-pro","messages":[{"role":"user","content":"Say hello"}]}'
+
+# Test Meta Llama 3.2 3B (AWS Bedrock via IRSA)
+curl http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"llama3-2-3b","messages":[{"role":"user","content":"What is AI?"}]}'
+
+# Test Perplexity Sonar Pro (API key from Secrets Manager)
+curl http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"perplexity-sonar-pro","messages":[{"role":"user","content":"Current AI trends"}]}'
+```
+
+#### Python Testing Example
+
+```python
+import os
+import requests
+
+LITELLM_URL = "http://localhost:4000/v1/chat/completions"
+API_KEY = os.environ["LITELLM_MASTER_KEY"]
+
+response = requests.post(
+    LITELLM_URL,
+    headers={"Authorization": f"Bearer {API_KEY}"},
+    json={
+        "model": "nova-pro",
+        "messages": [{"role": "user", "content": "Hello!"}]
+    }
+)
+
+print(response.json())
+```
+
 ## Troubleshooting
 
 ### Check Pod Status
