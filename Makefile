@@ -33,7 +33,7 @@ local-status: ## Show status of Docker containers, networks, and volumes
 
 local-port-forward: ## Forward LiteLLM port 4000 to localhost (Ctrl+C to stop)
 	@echo "Forwarding localhost:4000 -> litellm:4000 (press Ctrl+C to stop)"
-	@docker run --rm -it --network llm-gateway-network -p 4000:4000 alpine/socat TCP-LISTEN:4000,fork,reuseaddr TCP:litellm:4000
+	@docker run --rm -it --network llm-gateway-network -p 4000:4000 alpine/socat -d -d TCP-LISTEN:4000,fork,reuseaddr TCP:litellm:4000
 
 local-destroy: ## Destroy local Docker containers, volumes, networks, and images
 	@echo "Stopping and removing containers, volumes, and networks..."
@@ -170,3 +170,7 @@ eks-apply: ## Apply Terraform to deploy to EKS
 
 eks-destroy: ## Destroy EKS deployment
 	@cd terraform/eks && terraform destroy
+
+eks-port-forward: ## Forward LiteLLM from EKS to localhost:4000 (Ctrl+C to stop)
+	@echo "Forwarding localhost:4000 -> llm-gateway/litellm:80 (press Ctrl+C to stop)"
+	@kubectl port-forward -n llm-gateway svc/litellm 4000:80
