@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Test script for all LiteLLM models
 # Tests Perplexity, Amazon Nova, and Meta Llama models
@@ -20,7 +20,7 @@ ENDPOINT="${1:-http://localhost:4000}"
 # Get API key from environment or .secrets file
 if [ -z "$LITELLM_MASTER_KEY" ]; then
   if [ -f ".secrets" ]; then
-    source .secrets
+    . ./.secrets
   fi
 fi
 
@@ -50,12 +50,12 @@ echo ""
 TOTAL_TESTS=0
 PASSED_TESTS=0
 FAILED_TESTS=0
-FAILED_MODELS=()
+FAILED_MODELS=""
 
 # Function to test a model
 test_model() {
-  local model_name=$1
-  local test_prompt=$2
+  model_name=$1
+  test_prompt=$2
 
   echo -n "Testing $model_name... "
 
@@ -95,15 +95,20 @@ test_model() {
 
 # Wrapper function to track test results
 run_test() {
-  local model_name=$1
-  local prompt=$2
+  model_name=$1
+  prompt=$2
 
   TOTAL_TESTS=$((TOTAL_TESTS + 1))
   if test_model "$model_name" "$prompt"; then
     PASSED_TESTS=$((PASSED_TESTS + 1))
   else
     FAILED_TESTS=$((FAILED_TESTS + 1))
-    FAILED_MODELS+=("$model_name")
+    if [ -z "$FAILED_MODELS" ]; then
+      FAILED_MODELS="$model_name"
+    else
+      FAILED_MODELS="$FAILED_MODELS
+$model_name"
+    fi
   fi
 }
 
@@ -139,8 +144,10 @@ echo ""
 
 if [ $FAILED_TESTS -gt 0 ]; then
   echo "Failed models:"
-  for model in "${FAILED_MODELS[@]}"; do
-    echo "  - $model"
+  echo "$FAILED_MODELS" | while IFS= read -r model; do
+    if [ -n "$model" ]; then
+      echo "  - $model"
+    fi
   done
   echo ""
 fi
