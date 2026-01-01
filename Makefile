@@ -1,13 +1,14 @@
 # Variables
 ENDPOINT ?= http://localhost:4000
 AWS_REGION ?= us-east-1
+CLUSTER_NAME ?= llm-gateway-eks
 
 .DEFAULT_GOAL := help
 
 help: ## Show this help message
 	@echo "LLM Gateway - Available Commands:"
 	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-28s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 
 validate-setup: ## Validate required tools are installed
@@ -34,6 +35,17 @@ local-port-forward: ## Forward LiteLLM port 4000 to localhost (Ctrl+C to stop)
 	@echo "Forwarding localhost:4000 -> litellm:4000 (press Ctrl+C to stop)"
 	@docker run --rm -it --network llm-gateway-network -p 4000:4000 alpine/socat TCP-LISTEN:4000,fork,reuseaddr TCP:litellm:4000
 
+local-destroy: ## Destroy local Docker containers, volumes, networks, and images
+	@echo "Stopping and removing containers, volumes, and networks..."
+	@docker-compose down -v --rmi local
+	@echo "Cleaning up any remaining containers..."
+	@docker rm -f litellm openwebui 2>/dev/null || true
+	@echo "Cleaning up any orphaned networks..."
+	@docker network rm llm-gateway-network 2>/dev/null || true
+	@echo "Cleaning up volumes..."
+	@docker volume rm openwebui-volume 2>/dev/null || true
+	@echo "Local environment destroyed successfully!"
+
 test-health: ## Check service health and connectivity
 	@sh tests/test-health.sh
 
@@ -58,6 +70,9 @@ aws-costs: ## Generate AWS cost report for current resources (shell version)
 
 aws-costs-py: ## Generate AWS cost report (Python version with rich formatting)
 	@AWS_REGION=$(AWS_REGION) python3 tools/report-aws-costs.py
+
+iam-report: ## Show IAM roles and security architecture for this project
+	@CLUSTER_NAME=$(CLUSTER_NAME) AWS_REGION=$(AWS_REGION) sh tools/report-iam-roles.sh
 
 # ECR Infrastructure Targets
 ecr-init: ## Initialize Terraform for ECR repositories
@@ -155,14 +170,3 @@ eks-apply: ## Apply Terraform to deploy to EKS
 
 eks-destroy: ## Destroy EKS deployment
 	@cd terraform/eks && terraform destroy
-
-local-destroy: ## Destroy local Docker containers, volumes, networks, and images
-	@echo "Stopping and removing containers, volumes, and networks..."
-	@docker-compose down -v --rmi local
-	@echo "Cleaning up any remaining containers..."
-	@docker rm -f litellm openwebui 2>/dev/null || true
-	@echo "Cleaning up any orphaned networks..."
-	@docker network rm llm-gateway-network 2>/dev/null || true
-	@echo "Cleaning up volumes..."
-	@docker volume rm openwebui-volume 2>/dev/null || true
-	@echo "Local environment destroyed successfully!"
