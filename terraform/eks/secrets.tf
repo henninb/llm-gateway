@@ -1,7 +1,8 @@
 # AWS Secrets Manager Secret
 resource "aws_secretsmanager_secret" "api_keys" {
-  name        = var.secrets_manager_secret_name
-  description = "API keys for LLM Gateway (Perplexity, LiteLLM Master Key, WebUI Secret)"
+  name                    = var.secrets_manager_secret_name
+  description             = "API keys for LLM Gateway (Perplexity, LiteLLM Master Key, WebUI Secret)"
+  recovery_window_in_days = 0 # Force immediate deletion to allow recreation
 
   tags = {
     Name        = "llm-gateway-api-keys"
