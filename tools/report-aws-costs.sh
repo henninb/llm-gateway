@@ -122,6 +122,12 @@ fi
 printf "%b✓ Authenticated as account: %s%b\n" "$GREEN" "$CALLER_IDENTITY" "$NC"
 echo ""
 
+# Warning about Cost Explorer API charges
+printf "%bℹ️  Note: AWS Cost Explorer API charges \$0.01 per request%b\n" "$YELLOW" "$NC"
+printf "%b   This script makes ~5-10 API calls (~\$0.05-0.10 per run)%b\n" "$YELLOW" "$NC"
+printf "   Frequent runs can add up to \$1-2/month in API charges\n"
+echo ""
+
 # 1. EKS Clusters (most expensive)
 print_header "EKS CLUSTERS (~\$73/month each for control plane)"
 EKS_CLUSTERS=$(aws eks list-clusters --region "$AWS_REGION" --query 'clusters' --output text 2>/dev/null | wc -w)

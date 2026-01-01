@@ -844,6 +844,11 @@ class AWSCostReporter:
 
         self.console.print(f"[green]✓ Authenticated as account: {account}[/green]\n")
 
+        # Warning about Cost Explorer API charges
+        self.console.print("[yellow]ℹ️  Note: AWS Cost Explorer API charges $0.01 per request[/yellow]")
+        self.console.print("[yellow]   This script makes ~5-10 API calls (~$0.05-0.10 per run)[/yellow]")
+        self.console.print("[dim]   Frequent runs can add up to $1-2/month in API charges[/dim]\n")
+
         # Run checks grouped by category
         self.console.print("\n[bold magenta]🖥️  COMPUTE RESOURCES[/bold magenta]")
         self.check_eks_clusters()
