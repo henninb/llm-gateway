@@ -59,7 +59,4 @@ Thumbs.db
 terraform/eks/.terraform.tfstate.lock.info
 .openwebui_endpoint_eks
 
-# Terraform local state
-terraform/local/.terraform/
-terraform/local/*.tfstate*
-terraform/local/terraform.tfvars
+terraform/eks-cluster/.terraform.tfstate.lock.info
