@@ -92,9 +92,9 @@ git clone https://github.com/henninb/llm-gateway.git
 cd llm-gateway
 ```
 
-2. Create `.env` file:
+2. Create `.secrets` file:
 ```bash
-cat > .env <<EOF
+cat > .secrets <<EOF
 AWS_ACCESS_KEY_ID=your-access-key
 AWS_SECRET_ACCESS_KEY=your-secret-key
 AWS_REGION=us-east-1
@@ -106,10 +106,59 @@ EOF
 
 3. Start the services:
 ```bash
-docker-compose up -d
+make local-deploy
 ```
 
 4. Access OpenWebUI at http://localhost:3000
+
+### Available Makefile Commands
+
+The project includes a comprehensive Makefile with the following commands:
+
+```bash
+# Show all available commands
+make help
+
+# Local Development
+make local-deploy          # Deploy containers locally with docker-compose
+make local-status          # Show status of Docker containers
+make local-port-forward    # Forward LiteLLM port to localhost:4000
+make local-destroy         # Destroy local environment
+
+# Testing
+make validate-setup        # Validate required tools are installed
+make test-health          # Check service health and connectivity
+make test-models          # Test all LiteLLM models
+make test-all             # Run all tests
+
+# Cost & IAM Reporting
+make aws-costs            # Generate AWS cost report (shell)
+make aws-costs-py         # Generate AWS cost report (Python, rich formatting)
+make iam-report           # Show IAM roles and security architecture
+
+# ECR Infrastructure
+make ecr-init             # Initialize Terraform for ECR
+make ecr-plan             # Plan ECR changes
+make ecr-apply            # Create ECR repositories
+make ecr-destroy          # Destroy ECR repositories
+make ecr-login            # Login to AWS ECR
+make ecr-build-push       # Build and push Docker images to ECR
+
+# EKS Cluster Infrastructure
+make eks-cluster-init     # Initialize Terraform for EKS cluster
+make eks-cluster-plan     # Plan EKS cluster changes
+make eks-cluster-apply    # Create EKS cluster
+make eks-cluster-destroy  # Destroy EKS cluster
+make eks-cluster-kubeconfig  # Configure kubectl for EKS
+
+# EKS Application Deployment
+make eks-init             # Initialize Terraform for EKS deployment
+make eks-plan             # Plan EKS deployment changes
+make eks-apply            # Deploy applications to EKS
+make eks-destroy          # Destroy EKS deployment
+make eks-secrets-populate # Populate AWS Secrets Manager with API keys
+make eks-port-forward     # Forward LiteLLM from EKS to localhost:4000
+```
 
 ## AWS EKS Deployment
 
@@ -117,47 +166,45 @@ docker-compose up -d
 
 ```bash
 # 1. Create ECR repositories
-cd terraform/ecr
-terraform init
-terraform apply
+make ecr-init
+make ecr-apply
 
 # 2. Build and push Docker images
-cd ../..
-./tools/build-and-push-ecr.sh
+make ecr-login
+make ecr-build-push
 
 # 3. Create EKS cluster
-cd terraform/eks-cluster
-terraform init
-terraform apply
+make eks-cluster-init
+make eks-cluster-apply
 ```
 
 ### Step 2: Configure kubectl
 
 ```bash
-aws eks update-kubeconfig --region us-east-1 --name llm-gateway-eks
+make eks-cluster-kubeconfig
 ```
 
 ### Step 3: Create Secrets in AWS Secrets Manager
 
+First, create a `.secrets` file in the project root with your API keys (see Quick Start section above for format).
+
+Then populate AWS Secrets Manager:
 ```bash
-cd ../eks
+# From project root directory
 make eks-secrets-populate
 ```
 
-You'll be prompted to enter:
-- LITELLM_MASTER_KEY
-- WEBUI_SECRET_KEY
-- PERPLEXITY_API_KEY
+This will load the secrets from your `.secrets` file and store them in AWS Secrets Manager under the secret `llm-gateway/api-keys`.
 
 ### Step 4: Deploy Applications
 
 ```bash
 # Update terraform.tfvars with your ACM certificate ARN
-vim terraform.tfvars
+vim terraform/eks/terraform.tfvars
 
 # Apply EKS application deployment
-terraform init
-terraform apply
+make eks-init
+make eks-apply
 ```
 
 ### Step 5: Configure DNS
@@ -247,8 +294,9 @@ Navigate to: https://openwebui.bhenning.com
 5. Models are revealed after voting
 
 ### Available Models
-- **AWS Bedrock**: nova-pro, llama3-2-3b, claude-3-5-sonnet, titan-text-express
-- **Perplexity**: perplexity-sonar-pro
+- **AWS Bedrock Nova**: nova-micro, nova-lite, nova-pro
+- **AWS Bedrock Llama**: llama3-2-1b, llama3-2-3b
+- **Perplexity**: perplexity-sonar, perplexity-sonar-pro
 
 ### API Access
 You can also access LiteLLM directly via OpenAI-compatible API:
@@ -273,13 +321,13 @@ The project includes comprehensive test scripts to validate LiteLLM deployment a
 
 ```bash
 # Test all models with shell script
-./tests/test-models.sh
+make test-models
 
 # Test all models with Python script
-python tests/test-litellm-api.py
+./tests/test-litellm-api.py
 
 # Test with custom endpoint
-LITELLM_ENDPOINT=http://192.168.1.10:4000 python tests/test-litellm-api.py
+ENDPOINT=http://192.168.1.10:4000 ./tests/test-litellm-api.py
 ```
 
 #### Test Production Deployment
@@ -348,6 +396,66 @@ response = requests.post(
 print(response.json())
 ```
 
+## Operations & Monitoring
+
+### Cost Reporting
+
+The project includes tools to monitor AWS infrastructure costs:
+
+```bash
+# Generate cost report with rich formatting (Python)
+make aws-costs-py
+
+# Generate cost report (shell script)
+make aws-costs
+
+# Specify AWS region (default: us-east-1)
+AWS_REGION=us-west-2 make aws-costs-py
+```
+
+The cost reports show:
+- Month-to-date costs for current resources
+- Daily cost breakdown
+- Cost by service (EKS, EC2, NAT Gateway, etc.)
+- Previous month comparison
+
+**Note**: AWS Cost Explorer API charges $0.01 per request.
+
+### IAM Security Architecture Report
+
+View all IAM roles and security architecture details:
+
+```bash
+# Generate IAM roles report
+make iam-report
+
+# Specify cluster name and region
+CLUSTER_NAME=llm-gateway-eks AWS_REGION=us-east-1 make iam-report
+```
+
+This report displays:
+1. **EKS Cluster Management Roles**: Roles for EKS control plane and worker nodes
+2. **IRSA (IAM Roles for Service Accounts)**: Zero-trust authentication architecture
+   - EBS CSI Driver role for persistent volume management
+   - LiteLLM role for AWS Bedrock access
+3. **Security Architecture Summary**: Zero static credentials, least privilege, audit trail
+4. **IRSA Technical Flow**: How pods authenticate to AWS services
+5. **Cost Implications**: IAM roles are free (only pay for actual AWS service usage)
+
+### Port Forwarding for Local Testing
+
+Test LiteLLM locally by forwarding from Kubernetes:
+
+```bash
+# Forward from EKS cluster to localhost:4000
+make eks-port-forward
+
+# Forward from local Docker to localhost:4000
+make local-port-forward
+```
+
+Both commands forward LiteLLM to `localhost:4000` for testing with curl or Python scripts. Press Ctrl+C to stop forwarding.
+
 ## Troubleshooting
 
 ### Check Pod Status
@@ -385,7 +493,7 @@ kubectl describe svc openwebui -n llm-gateway
 ### IRSA Issues
 ```bash
 # Verify service account annotations
-kubectl get sa litellm-sa -n llm-gateway -o yaml
+kubectl get sa litellm -n llm-gateway -o yaml
 
 # Check pod environment
 kubectl exec -n llm-gateway -it $(kubectl get pod -n llm-gateway -l app=litellm -o jsonpath='{.items[0].metadata.name}') -- env | grep AWS
@@ -396,17 +504,23 @@ kubectl exec -n llm-gateway -it $(kubectl get pod -n llm-gateway -l app=litellm 
 ### Update Images
 ```bash
 # Build and push new images
-./tools/build-and-push-ecr.sh
+make ecr-login
+make ecr-build-push
 
 # Update deployments
-cd terraform/eks
-terraform apply -var="ecr_image_tag=latest"
+make eks-apply
 ```
 
 ### Rotate Secrets
 ```bash
-# Update secrets in AWS Secrets Manager
-aws secretsmanager update-secret --secret-id llm-gateway/litellm-master-key --secret-string "new-key"
+# Update secrets in AWS Secrets Manager (all keys stored in one secret)
+aws secretsmanager put-secret-value \
+  --secret-id llm-gateway/api-keys \
+  --secret-string '{
+    "PERPLEXITY_API_KEY": "new-perplexity-key",
+    "LITELLM_MASTER_KEY": "new-litellm-key",
+    "WEBUI_SECRET_KEY": "new-webui-key"
+  }'
 
 # Restart pods to pick up new secrets
 kubectl rollout restart deployment litellm -n llm-gateway
