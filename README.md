@@ -93,7 +93,7 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 
 ### Features
 - **Arena Mode**: Blind model comparison (3 models: Perplexity, AWS, Meta)
-- **Custom Guardrails**: Extensible content filtering system (example implementation included)
+- **Custom Guardrails**: Extensible content filtering system with streaming support (example implementation included)
 - **Persistent Storage**: User data and conversations stored in EBS volumes
 - **Auto-Scaling**: EKS node group scales based on demand
 - **Health Checks**: Kubernetes liveness/readiness probes
@@ -375,13 +375,15 @@ The project includes a **demonstration** of custom content filtering using LiteL
 1. **Pre-call hook**: Checks incoming user messages before sending to LLM
 2. **History sanitization**: Removes previously blocked message pairs from context
 3. **Conversation validation**: Ensures proper message structure (user/assistant alternation)
-4. **Post-call hook**: Filters LLM responses for prohibited content
-5. **Passthrough mode**: Returns HTTP 200 with violation message (prevents UI context corruption)
-6. **Streaming support**: Works with both streaming and non-streaming requests
+4. **Streaming fix**: Forces stream=false when stream=true detected (LiteLLM limitation workaround)
+5. **Post-call hook**: Filters LLM responses for prohibited content
+6. **Passthrough mode**: Returns HTTP 200 with violation message (prevents UI context corruption)
 
 **Technical Details:**
 - Uses `ModifyResponseException` with `on_flagged_action: "passthrough"`
 - Includes patch for LiteLLM v1.80.11 streaming bug (see `LITELLM-BUG.md`)
+- Works around LiteLLM streaming limitation: post_call hooks don't execute for streaming responses
+- Automatically forces non-streaming mode to enable output filtering
 - Maintains chat context integrity across both local and production environments
 
 **Configure in** `config/litellm_config.yaml`:
@@ -409,7 +411,7 @@ make test-guardrails
 # Or run directly
 python3 tests/test-guardrails.py
 
-# Tests verify (5 tests per model, 10 total):
+# Tests verify (6 tests per model, 12 total):
 # PRE_CALL TESTS:
 # - Direct blocking of prohibited user input
 # - Bypass prevention via history sanitization
@@ -417,6 +419,7 @@ python3 tests/test-guardrails.py
 # POST_CALL TESTS:
 # - LLM output filtering (non-streaming)
 # - LLM output filtering (streaming mode)
+# - Indirect bypass prevention ("what is bird that quacks?")
 ```
 
 This implementation demonstrates enterprise-grade content filtering that can be adapted for:
@@ -537,7 +540,7 @@ make test-guardrails
 python3 tests/test-guardrails.py
 ```
 
-The test suite validates (5 tests per model, 10 total):
+The test suite validates (6 tests per model, 12 total):
 
 **PRE_CALL TESTS (Input Filtering):**
 1. **Direct blocking**: User input with prohibited content is blocked
@@ -546,7 +549,8 @@ The test suite validates (5 tests per model, 10 total):
 
 **POST_CALL TESTS (Output Filtering):**
 4. **Output filtering (non-streaming)**: LLM responses with prohibited content are blocked
-5. **Output filtering (streaming)**: Same as above but validates streaming bug fix
+5. **Output filtering (streaming)**: Validates streaming bug fix and stream=false forcing
+6. **Indirect bypass prevention**: Catches responses to indirect queries ("what is bird that quacks?")
 
 Tests run against both:
 - **AWS Bedrock model**: llama3-2-3b
@@ -561,10 +565,11 @@ PRE_CALL TESTS (Input Filtering)
 
 POST_CALL TESTS (Output Filtering)
 ✅ PASS: LLM output blocked (post_call hook working)
-✅ PASS: LLM output blocked in streaming mode (patch working)
+✅ PASS: LLM output blocked in streaming mode (stream=false forcing)
+✅ PASS: Indirect bypass blocked (post_call caught "duck" in response)
 
-Model 'llama3-2-3b' Results: 5/5 tests passed
-🎉 All tests passed! (10/10)
+Model 'llama3-2-3b' Results: 6/6 tests passed
+🎉 All tests passed! (12/12)
 ```
 
 ### Model Connectivity Testing
