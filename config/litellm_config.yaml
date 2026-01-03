@@ -59,7 +59,7 @@ guardrails:
   - guardrail_name: "duckies-bunnies-detector"
     litellm_params:
       guardrail: custom_guardrail.DuckiesBunniesGuardrail
-      mode: ["pre_call", "post_call"]
+      mode: ["pre_call", "post_call", "during_call"]
       default_on: true
       on_flagged_action: "passthrough"
 

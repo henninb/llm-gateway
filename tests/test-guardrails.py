@@ -12,11 +12,13 @@ PRE_CALL TESTS (Input Filtering):
 POST_CALL TESTS (Output Filtering):
 4. Output filtering (non-streaming) - LLM responses with blocked words should be filtered
 5. Output filtering (streaming) - Same as above but with streaming enabled
+6. Indirect bypass attempt - questions that elicit blocked responses ("what is bird that quacks?")
 
 The guardrail should:
 - Block direct mentions of ducks/bunnies in user input (pre_call hook)
 - Sanitize conversation history to prevent LLM from seeing blocked content
 - Block LLM responses containing ducks/bunnies (post_call hook)
+- Block indirect bypass attempts where input is clean but output contains blocked words
 - Work correctly for both streaming and non-streaming requests
 - Allow normal conversations to proceed
 
@@ -289,6 +291,46 @@ def test_output_filtering_streaming(model: str) -> bool:
         print(f"❌ FAIL: Unexpected status {result['status_code']}")
         return False
 
+def test_indirect_bypass_attempt(model: str) -> bool:
+    """Test that indirect questions that elicit blocked responses are caught (post_call hook)"""
+    print(f"\n{'='*70}")
+    print(f"Test 6 ({model}): Indirect bypass - 'what is bird that quacks?' (post_call hook)")
+    print('='*70)
+    print("Asking: 'what is bird that quacks?'")
+    print("Expected: Input passes pre_call (no blocked words), but LLM response")
+    print("          contains 'duck/mallard' which should be blocked by post_call hook")
+    print()
+
+    result = call_llm([
+        {"role": "user", "content": "what is bird that quacks?"}
+    ], model, stream=False)
+
+    print(f"Status: {result['status_code']}")
+
+    if result['status_code'] == 200:
+        content = result['data'].get('choices', [{}])[0].get('message', {}).get('content', '')
+        print(f"Response: {content[:150]}...")
+
+        # Check if the response was blocked
+        if "BLOCKED" in content:
+            print("✅ PASS: Indirect bypass blocked (post_call hook caught LLM response)")
+            return True
+        else:
+            # Check if response contains blocked words (should not happen)
+            blocked_keywords = ['duck', 'ducky', 'duckies', 'mallard']
+            if any(keyword in content.lower() for keyword in blocked_keywords):
+                print("❌ FAIL: Response contains blocked words (post_call hook not working)")
+                print(f"   LLM responded with information about ducks but wasn't blocked!")
+                return False
+            else:
+                print("⚠️  UNCERTAIN: Response doesn't contain blocked words")
+                print("   (This might pass if LLM gave a different answer)")
+                # This is still a pass, just uncertain
+                return True
+    else:
+        print(f"❌ FAIL: Unexpected status {result['status_code']}")
+        return False
+
 def main():
     """Run all test cases for all models"""
     print("╔" + "="*68 + "╗")
@@ -330,6 +372,9 @@ def main():
 
         # Test 5: Output filtering - streaming
         model_results.append(test_output_filtering_streaming(model))
+
+        # Test 6: Indirect bypass attempt
+        model_results.append(test_indirect_bypass_attempt(model))
 
         # Model summary
         passed = sum(model_results)

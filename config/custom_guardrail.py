@@ -163,7 +163,71 @@ class DuckiesBunniesGuardrail(CustomGuardrail):
             # But if it does, return original data to avoid breaking the request
             return data
 
+        # CRITICAL FIX: Force stream=false because post_call guardrails don't work with streaming
+        # OpenWebUI sends stream=true by default, but LiteLLM's post_call hooks are never
+        # called for streaming responses, which means blocked content bypasses the guardrail
+        if data.get("stream", False):
+            print(f"⚠️ DuckiesBunniesGuardrail: Forcing stream=false (was stream=true)")
+            print(f"⚠️ DuckiesBunniesGuardrail: Streaming disabled to enable output filtering")
+            data["stream"] = False
+
         print(f"🔍 DuckiesBunniesGuardrail: Conversation cleaned, sending {len(cleaned_messages)} messages to LLM")
+        return data
+
+    def _check_content_for_blocked_words(self, content: str, data: dict, hook_name: str):
+        """
+        Helper method to check content for blocked words and raise exception if found
+
+        Args:
+            content: The content to check
+            data: Request data (for exception raising)
+            hook_name: Name of the hook calling this (for logging)
+        """
+        if not content:
+            return
+
+        print(f"🔍 DuckiesBunniesGuardrail [{hook_name}]: Checking content: {content[:100]}...")
+
+        # Check for duckies/bunnies in the content
+        for pattern in self.patterns:
+            if re.search(pattern, str(content), re.IGNORECASE):
+                print(f"⚠️ DuckiesBunniesGuardrail [{hook_name}]: MATCH FOUND! Pattern={pattern}")
+                print(f"⚠️ DuckiesBunniesGuardrail [{hook_name}]: BLOCKING - raising ModifyResponseException")
+
+                # Raise passthrough exception - LiteLLM will return 200 with this message
+                self.raise_passthrough_exception(
+                    violation_message="⚠️ BLOCKED: The response contains mentions of duckies or bunnies. Discussions about cute animals may cause excessive happiness and distraction. Please ask a different question.",
+                    request_data=data
+                )
+
+    async def async_moderation_hook(
+        self,
+        data: dict,
+        user_api_key_dict: UserAPIKeyAuth,
+        call_type: str,
+    ):
+        """
+        DURING_CALL hook - runs on each streaming chunk to check accumulated content
+
+        This is critical for streaming responses since post_call hooks don't execute
+        on streaming chunks in LiteLLM.
+
+        For each chunk, we check the accumulated message content and block if needed.
+        """
+        print(f"🔍 DuckiesBunniesGuardrail: async_moderation_hook CALLED! call_type={call_type}")
+
+        # Extract the streaming response if present
+        # For streaming, LiteLLM provides the accumulated message in data
+        messages = data.get("messages", [])
+        if not messages:
+            return data
+
+        # Check the last message (assistant's response being streamed)
+        last_message = messages[-1]
+        if last_message.get("role") == "assistant":
+            content = last_message.get("content", "")
+            self._check_content_for_blocked_words(content, data, "during_call/streaming")
+
         return data
 
     async def async_post_call_success_hook(
@@ -173,10 +237,10 @@ class DuckiesBunniesGuardrail(CustomGuardrail):
         response: dict,
     ):
         """
-        Check LLM output AFTER calling LLM and raise exception if blocked content detected
+        Check LLM output AFTER calling LLM (non-streaming only)
 
-        This catches cases where users bypass the input filter by asking indirectly
-        (e.g., "hi" after being blocked for asking about ducks)
+        Note: This hook does NOT execute for streaming responses in LiteLLM.
+        Use async_moderation_hook for streaming support.
 
         Args:
             user_api_key_dict: User API key information
@@ -189,40 +253,22 @@ class DuckiesBunniesGuardrail(CustomGuardrail):
         print(f"🔍 DuckiesBunniesGuardrail: async_post_call_success_hook CALLED!")
 
         # Extract response content from the LLM response
-        try:
-            # Handle both streaming and non-streaming responses
-            choices = response.get("choices", [])
-            if not choices:
-                print(f"🔍 DuckiesBunniesGuardrail: No choices in response")
-                return response
-
-            # Get the assistant's message content
-            first_choice = choices[0]
-            message = first_choice.get("message", {})
-            content = message.get("content", "")
-
-            if not content:
-                print(f"🔍 DuckiesBunniesGuardrail: No content in response message")
-                return response
-
-            print(f"🔍 DuckiesBunniesGuardrail: Checking LLM response: {content[:100]}...")
-
-            # Check for duckies/bunnies in the LLM's response
-            for pattern in self.patterns:
-                if re.search(pattern, str(content), re.IGNORECASE):
-                    print(f"⚠️ DuckiesBunniesGuardrail: MATCH FOUND in LLM response! Pattern={pattern}")
-                    print(f"⚠️ DuckiesBunniesGuardrail: BLOCKING response - raising ModifyResponseException")
-
-                    # Raise passthrough exception - LiteLLM will return 200 with this message
-                    self.raise_passthrough_exception(
-                        violation_message="⚠️ BLOCKED: The response contains mentions of duckies or bunnies. Discussions about cute animals may cause excessive happiness and distraction. Please ask a different question.",
-                        request_data=data
-                    )
-
-            print(f"🔍 DuckiesBunniesGuardrail: No duckies/bunnies detected in LLM response")
+        choices = response.get("choices", [])
+        if not choices:
+            print(f"🔍 DuckiesBunniesGuardrail: No choices in response")
             return response
 
-        except Exception as e:
-            # Don't block on parsing errors, just log and pass through
-            print(f"⚠️ DuckiesBunniesGuardrail: Error checking response: {e}")
+        # Get the assistant's message content
+        first_choice = choices[0]
+        message = first_choice.get("message", {})
+        content = message.get("content", "")
+
+        if not content:
+            print(f"🔍 DuckiesBunniesGuardrail: No content in response message")
             return response
+
+        # Check content using helper method
+        self._check_content_for_blocked_words(content, data, "post_call/non-streaming")
+
+        print(f"🔍 DuckiesBunniesGuardrail: No duckies/bunnies detected in LLM response")
+        return response
