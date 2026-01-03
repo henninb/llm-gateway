@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
 """
-LiteLLM API Test Script
+LiteLLM Models API Test Script
 
 Tests all configured LiteLLM models via the OpenAI-compatible API.
 Demonstrates proper IRSA authentication and multi-provider access.
 
+This test validates basic model connectivity (7 models across 3 providers).
+For guardrail testing, see test-guardrails.py.
+
 Usage:
     # Test local deployment
-    python tests/test-litellm-api.py
+    python tests/test-litellm-models-api.py
+    make test-litellm-models
 
     # Test production deployment
-    LITELLM_ENDPOINT=https://openwebui.bhenning.com python tests/test-litellm-api.py
+    LITELLM_ENDPOINT=https://openwebui.bhenning.com python tests/test-litellm-models-api.py
 
     # Test custom endpoint
-    LITELLM_ENDPOINT=http://192.168.10.40:4000 python tests/test-litellm-api.py
+    LITELLM_ENDPOINT=http://192.168.10.40:4000 python tests/test-litellm-models-api.py
 """
 
 import os

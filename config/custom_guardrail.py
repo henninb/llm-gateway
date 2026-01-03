@@ -138,6 +138,24 @@ class DuckiesBunniesGuardrail(CustomGuardrail):
                 removed_msg = cleaned_messages.pop(0)
                 print(f"🔍 DuckiesBunniesGuardrail: Removed leading assistant message: {removed_msg.get('content', '')[:50]}...")
 
+        # Ensure messages alternate properly between user and assistant
+        # After removing blocked pairs, we might have consecutive messages of the same role
+        if len(cleaned_messages) > 1:
+            alternating_messages = [cleaned_messages[0]]
+            for msg in cleaned_messages[1:]:
+                # Only add if role differs from previous message
+                if msg.get("role") != alternating_messages[-1].get("role"):
+                    alternating_messages.append(msg)
+                else:
+                    # Skip duplicate role - keep the latest one
+                    print(f"🔍 DuckiesBunniesGuardrail: Skipping consecutive {msg.get('role')} message to maintain alternation")
+                    alternating_messages[-1] = msg  # Replace previous with current (keep latest)
+
+            if len(alternating_messages) != len(cleaned_messages):
+                print(f"🔍 DuckiesBunniesGuardrail: Fixed alternation: {len(cleaned_messages)} -> {len(alternating_messages)} messages")
+                cleaned_messages = alternating_messages
+                data["messages"] = cleaned_messages
+
         # Final validation
         if not cleaned_messages:
             print(f"⚠️ DuckiesBunniesGuardrail: No messages left after sanitization!")

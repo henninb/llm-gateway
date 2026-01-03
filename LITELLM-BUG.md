@@ -7,7 +7,7 @@ LiteLLM v1.80.11 has a bug where `ModifyResponseException` raised from pre-call 
 ## Bug Details
 
 **Affected Versions**: LiteLLM 1.80.11 (possibly earlier versions, tested on 1.80.11)
-**Docker Image**: `ghcr.io/berriai/litellm:main-v1.80.11` (pinned in Dockerfile)
+**Docker Image**: `ghcr.io/berriai/litellm:main-latest@sha256:fff53d2f4fe65fc9baaee005a31aaf477c734b638164e456d587667e185791a0` (pinned in Dockerfile)
 **Component**: `/usr/lib/python3.13/site-packages/litellm/proxy/proxy_server.py`
 **Line**: 5105-5109
 **Error**: `AttributeError: 'NoneType' object has no attribute 'model_call_details'`
@@ -191,10 +191,19 @@ curl -X POST http://localhost:4000/v1/chat/completions \
 
 Monitor LiteLLM releases for a fix to this issue. Once LiteLLM properly handles `ModifyResponseException` in pre-call hooks for streaming requests:
 
-1. **Update Dockerfile**: Change `FROM ghcr.io/berriai/litellm:main-v1.80.11` to the fixed version (e.g., `:main-latest` or specific newer version)
+1. **Update Dockerfile**: Change the pinned image hash to `:main-latest` (remove the `@sha256:...` portion)
 2. **Remove patch lines** from Dockerfile (lines that copy and run `apply_litellm_fix.py`)
 3. **Test thoroughly** to ensure the bug is actually fixed upstream
 4. **Delete patch files**: `patches/apply_litellm_fix.py` (optional, can keep for reference)
+
+**Example Dockerfile change:**
+```dockerfile
+# Before (with patch):
+FROM ghcr.io/berriai/litellm:main-latest@sha256:fff53d2f4fe65fc9baaee005a31aaf477c734b638164e456d587667e185791a0
+
+# After (bug fixed upstream):
+FROM ghcr.io/berriai/litellm:main-latest
+```
 
 ## Related Files
 

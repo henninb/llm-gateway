@@ -3,10 +3,14 @@
 # Test script for all LiteLLM models
 # Tests Perplexity, Amazon Nova, and Meta Llama models
 #
+# This test validates basic model connectivity (7 models across 3 providers).
+# For guardrail testing, see test-guardrails.py.
+#
 # Usage:
-#   ./tests/test-models.sh                           # Use default endpoint (http://localhost:4000)
-#   ./tests/test-models.sh http://192.168.1.10:4000  # Use custom endpoint
-#   ./tests/test-models.sh http://example.com:4000   # Use remote endpoint
+#   ./tests/test-litellm-models-api.sh                           # Use default endpoint (http://localhost:4000)
+#   ./tests/test-litellm-models-api.sh http://192.168.1.10:4000  # Use custom endpoint
+#   ./tests/test-litellm-models-api.sh http://example.com:4000   # Use remote endpoint
+#   make test-litellm-models                                     # Use Makefile target
 
 # Colors for output
 RED='\033[0;31m'

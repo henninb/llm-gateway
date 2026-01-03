@@ -1,6 +1,7 @@
-# Pin to specific version with known bug (see docs/litellm-bug-modifyresponseexception-streaming.md)
+# Pin to specific image hash for LiteLLM v1.80.11 with known bug
+# See LITELLM-BUG.md for details on the ModifyResponseException streaming bug
 # DO NOT upgrade to :main-latest until the bug is fixed upstream
-FROM ghcr.io/berriai/litellm:main-v1.80.11
+FROM ghcr.io/berriai/litellm:main-latest@sha256:fff53d2f4fe65fc9baaee005a31aaf477c734b638164e456d587667e185791a0
 
 # Set working directory
 WORKDIR /app

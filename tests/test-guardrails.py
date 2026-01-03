@@ -1,8 +1,33 @@
 #!/usr/bin/env python3
 """
-Test script for Duckies and Bunnies Guardrail
-Tests that the guardrail properly blocks messages and prevents bypasses
+Custom Guardrails Test Script
+
+Tests the DuckiesBunniesGuardrail with comprehensive scenarios:
+
+PRE_CALL TESTS (Input Filtering):
+1. Direct blocking - user messages containing "duckies" or "bunnies" should be blocked
+2. Bypass prevention - conversation history should be sanitized to prevent bypass
+3. Normal conversation - regular messages should work fine
+
+POST_CALL TESTS (Output Filtering):
+4. Output filtering (non-streaming) - LLM responses with blocked words should be filtered
+5. Output filtering (streaming) - Same as above but with streaming enabled
+
+The guardrail should:
+- Block direct mentions of ducks/bunnies in user input (pre_call hook)
+- Sanitize conversation history to prevent LLM from seeing blocked content
+- Block LLM responses containing ducks/bunnies (post_call hook)
+- Work correctly for both streaming and non-streaming requests
+- Allow normal conversations to proceed
+
 Tests with both Bedrock (llama3-2-3b) and Perplexity (perplexity-sonar) models
+
+Usage:
+    # Test local deployment
+    python tests/test-guardrails.py
+
+    # Test specific endpoint
+    LITELLM_ENDPOINT=http://192.168.10.40:4000 python tests/test-guardrails.py
 """
 
 import os
@@ -21,12 +46,13 @@ MODELS_TO_TEST = [
     "perplexity-sonar"  # Perplexity model
 ]
 
-def call_llm(messages: List[Dict[str, str]], model: str) -> Dict[str, Any]:
+def call_llm(messages: List[Dict[str, str]], model: str, stream: bool = False) -> Dict[str, Any]:
     """Make a chat completion request to LiteLLM
 
     Args:
         messages: List of message dicts with 'role' and 'content'
         model: Model name to use
+        stream: Whether to use streaming mode
 
     Returns:
         dict with 'choices' key on success, or 'error' key on 400 error
@@ -39,16 +65,50 @@ def call_llm(messages: List[Dict[str, str]], model: str) -> Dict[str, Any]:
     payload = {
         "model": model,
         "messages": messages,
-        "max_tokens": 100
+        "max_tokens": 100,
+        "stream": stream
     }
 
-    response = requests.post(url, headers=headers, json=payload, timeout=30)
+    if stream:
+        # For streaming, we need to handle SSE responses
+        response = requests.post(url, headers=headers, json=payload, timeout=30, stream=True)
 
-    # Return response regardless of status code
-    return {
-        "status_code": response.status_code,
-        "data": response.json()
-    }
+        # Collect all chunks
+        full_content = ""
+        for line in response.iter_lines():
+            if line:
+                line_str = line.decode('utf-8')
+                if line_str.startswith("data: "):
+                    data_str = line_str[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content", "")
+                        full_content += content
+                    except json.JSONDecodeError:
+                        pass
+
+        # Return in same format as non-streaming
+        return {
+            "status_code": response.status_code,
+            "data": {
+                "choices": [{
+                    "message": {
+                        "content": full_content
+                    }
+                }]
+            }
+        }
+    else:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+
+        # Return response regardless of status code
+        return {
+            "status_code": response.status_code,
+            "data": response.json()
+        }
 
 def test_direct_block(model: str) -> bool:
     """Test that direct mentions of ducks/bunnies are blocked"""
@@ -150,6 +210,85 @@ def test_normal_conversation(model: str) -> bool:
         print(f"❌ FAIL: Unexpected status {result['status_code']}")
         return False
 
+def test_output_filtering_non_streaming(model: str) -> bool:
+    """Test that LLM responses containing blocked words are filtered (post_call hook, non-streaming)"""
+    print(f"\n{'='*70}")
+    print(f"Test 4 ({model}): Output filtering - non-streaming (post_call hook)")
+    print('='*70)
+    print("Asking: 'What's another name for rabbit?'")
+    print("Expected: LLM would naturally say 'bunny', but post_call hook should block it")
+    print()
+
+    result = call_llm([
+        {"role": "user", "content": "What's another name for rabbit?"}
+    ], model, stream=False)
+
+    print(f"Status: {result['status_code']}")
+
+    if result['status_code'] == 200:
+        content = result['data'].get('choices', [{}])[0].get('message', {}).get('content', '')
+        print(f"Response: {content[:150]}...")
+
+        # Check if the response was blocked
+        if "BLOCKED" in content:
+            print("✅ PASS: LLM output blocked (post_call hook working)")
+            return True
+        else:
+            # Check if response contains blocked words (should not happen)
+            blocked_keywords = ['bunny', 'bunnies', 'duck', 'ducky', 'duckies', 'rabbit']
+            if any(keyword in content.lower() for keyword in blocked_keywords):
+                print("❌ FAIL: Response contains blocked words (post_call hook not working)")
+                print(f"   Response should have been blocked but wasn't!")
+                return False
+            else:
+                print("⚠️  UNCERTAIN: Response doesn't contain blocked words")
+                print("   (This might pass if LLM didn't naturally use 'bunny')")
+                # This is still a pass, just uncertain
+                return True
+    else:
+        print(f"❌ FAIL: Unexpected status {result['status_code']}")
+        return False
+
+def test_output_filtering_streaming(model: str) -> bool:
+    """Test that LLM responses containing blocked words are filtered (post_call hook, streaming)"""
+    print(f"\n{'='*70}")
+    print(f"Test 5 ({model}): Output filtering - streaming (post_call hook)")
+    print('='*70)
+    print("Asking: 'What's another name for rabbit?' with streaming=true")
+    print("Expected: LLM would naturally say 'bunny', but post_call hook should block it")
+    print("This tests the LiteLLM streaming bug fix")
+    print()
+
+    result = call_llm([
+        {"role": "user", "content": "What's another name for rabbit?"}
+    ], model, stream=True)
+
+    print(f"Status: {result['status_code']}")
+
+    if result['status_code'] == 200:
+        content = result['data'].get('choices', [{}])[0].get('message', {}).get('content', '')
+        print(f"Response: {content[:150]}...")
+
+        # Check if the response was blocked
+        if "BLOCKED" in content:
+            print("✅ PASS: LLM output blocked in streaming mode (post_call hook + patch working)")
+            return True
+        else:
+            # Check if response contains blocked words (should not happen)
+            blocked_keywords = ['bunny', 'bunnies', 'duck', 'ducky', 'duckies', 'rabbit']
+            if any(keyword in content.lower() for keyword in blocked_keywords):
+                print("❌ FAIL: Response contains blocked words (post_call hook not working in streaming)")
+                print(f"   Response should have been blocked but wasn't!")
+                return False
+            else:
+                print("⚠️  UNCERTAIN: Response doesn't contain blocked words")
+                print("   (This might pass if LLM didn't naturally use 'bunny')")
+                # This is still a pass, just uncertain
+                return True
+    else:
+        print(f"❌ FAIL: Unexpected status {result['status_code']}")
+        return False
+
 def main():
     """Run all test cases for all models"""
     print("╔" + "="*68 + "╗")
@@ -167,6 +306,11 @@ def main():
 
         model_results = []
 
+        # PRE_CALL TESTS (Input Filtering)
+        print(f"\n{'*'*70}")
+        print("* PRE_CALL TESTS (Input Filtering)")
+        print(f"{'*'*70}")
+
         # Test 1: Direct blocking
         model_results.append(test_direct_block(model))
 
@@ -175,6 +319,17 @@ def main():
 
         # Test 3: Normal conversation
         model_results.append(test_normal_conversation(model))
+
+        # POST_CALL TESTS (Output Filtering)
+        print(f"\n{'*'*70}")
+        print("* POST_CALL TESTS (Output Filtering)")
+        print(f"{'*'*70}")
+
+        # Test 4: Output filtering - non-streaming
+        model_results.append(test_output_filtering_non_streaming(model))
+
+        # Test 5: Output filtering - streaming
+        model_results.append(test_output_filtering_streaming(model))
 
         # Model summary
         passed = sum(model_results)

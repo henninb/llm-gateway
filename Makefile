@@ -50,21 +50,30 @@ local-destroy: ## Destroy local Docker containers, volumes, networks, and images
 test-health: ## Check service health and connectivity
 	@sh tests/test-health.sh
 
-test-models: ## Test all LiteLLM models (optionally set ENDPOINT=http://host:port)
+test-litellm-models: ## Test all LiteLLM models (optionally set ENDPOINT=http://host:port)
 	@if [ -f .secrets ]; then \
-		set -a && . ./.secrets && set +a && ./tests/test-models.sh $(ENDPOINT); \
+		set -a && . ./.secrets && set +a && ./tests/test-litellm-models-api.sh $(ENDPOINT); \
 	else \
-		./tests/test-models.sh $(ENDPOINT); \
+		./tests/test-litellm-models-api.sh $(ENDPOINT); \
 	fi
 
-test-all: ## Run all tests (setup validation, health check, model tests)
+test-guardrails: ## Test custom guardrails (pre_call and post_call hooks)
+	@if [ -f .secrets ]; then \
+		set -a && . ./.secrets && set +a && python3 tests/test-guardrails.py; \
+	else \
+		python3 tests/test-guardrails.py; \
+	fi
+
+test-all: ## Run all tests (setup validation, health check, model tests, guardrails)
 	@echo "Running complete test suite..."
 	@echo ""
 	@make validate-setup
 	@echo ""
 	@make test-health
 	@echo ""
-	@make test-models
+	@make test-litellm-models
+	@echo ""
+	@make test-guardrails
 
 aws-costs: ## Generate AWS cost report for current resources (shell version)
 	@AWS_REGION=$(AWS_REGION) sh tools/report-aws-costs.sh
