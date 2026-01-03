@@ -52,23 +52,22 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 ┌──────────────────────────────────────────────────────┐
 │              Docker Compose Network                   │
 │                                                        │
-│  ┌────────────────┐   ┌─────────────┐   ┌─────────┐ │
-│  │   OpenWebUI    │──>│    Proxy    │──>│ LiteLLM │ │
-│  │  Port: 3000    │   │  Port: 8000 │   │  4000   │ │
-│  │                │   │  (FastAPI)  │   │ +Guard  │ │
-│  └────────────────┘   └─────────────┘   └─────────┘ │
-│                        Converts 400→200               │
-│                        (preserves chat context)       │
-└──────────────────────────────────────────────────────┘
-         │                                  │
-         │                                  ├──> AWS Bedrock
-         └─> http://localhost:3000          └──> Perplexity API
+│  ┌────────────────┐          ┌─────────────────────┐ │
+│  │   OpenWebUI    │──────────│     LiteLLM         │ │
+│  │  Port: 3000    │          │     Port: 4000      │ │
+│  │                │          │   + Guardrails      │ │
+│  └────────────────┘          └─────────────────────┘ │
+│                                       │                │
+└───────────────────────────────────────┼────────────────┘
+         │                              │
+         │                              ├──> AWS Bedrock
+         └─> http://localhost:3000      └──> Perplexity API
 ```
 
 **Key Differences:**
-- **EKS**: Direct LiteLLM access, guardrails return 400 errors
-- **Local**: Proxy intercepts 400 errors → converts to 200 with error message
-- **Both**: Same guardrail logic, same content filtering
+- **EKS**: Exposed via NLB with HTTPS and CloudFlare restriction
+- **Local**: Direct localhost access (no external exposure)
+- **Both**: Same architecture - LiteLLM with native passthrough guardrails
 
 ## Key Features
 
@@ -152,7 +151,7 @@ make local-deploy
 
 4. Access OpenWebUI at http://localhost:3000
 
-**Note**: Local deployment includes a FastAPI proxy that sits between OpenWebUI and LiteLLM. This proxy converts guardrail blocking errors (HTTP 400) to successful responses (HTTP 200) with the error message in the content, preventing chat context from breaking in the UI.
+**Note**: Local and EKS deployments use the same architecture. Custom guardrails use LiteLLM's native passthrough mode (`on_flagged_action: "passthrough"`), which returns HTTP 200 with violation messages instead of HTTP 400 errors. This prevents chat context corruption in the UI while maintaining security controls.
 
 ### Available Makefile Commands
 
@@ -171,8 +170,9 @@ make local-destroy         # Destroy local environment
 # Testing
 make validate-setup        # Validate required tools are installed
 make test-health          # Check service health and connectivity
-make test-models          # Test all LiteLLM models
-make test-all             # Run all tests
+make test-litellm-models  # Test all LiteLLM models (7 models across 3 providers)
+make test-guardrails      # Test custom guardrails (pre_call and post_call hooks)
+make test-all             # Run all tests (setup, health, models, guardrails)
 
 # Cost & IAM Reporting
 make aws-costs            # Generate AWS cost report (shell)
@@ -362,21 +362,27 @@ Edit `config/litellm_config.yaml` to:
 
 ### Custom Guardrails (Example Implementation)
 
-The project includes a **demonstration** of custom content filtering using LiteLLM's guardrails system. This example blocks specific content patterns while preventing chat context corruption.
+The project includes a **demonstration** of custom content filtering using LiteLLM's guardrails system. This example blocks specific content patterns in both user inputs and model outputs while preventing chat context corruption.
 
 **Example guardrail** (`config/custom_guardrail.py`):
-- Blocks messages containing specific keywords/patterns
+- Blocks user messages containing specific keywords/patterns (pre_call hook)
+- Blocks LLM responses containing prohibited content (post_call hook)
 - Sanitizes conversation history to prevent bypass attempts
-- Returns user-friendly error messages
-- Works in both local (Docker) and EKS deployments
+- Returns user-friendly error messages via passthrough mode
+- Works identically in both local (Docker) and EKS deployments
 
 **How it works:**
-1. **Pre-call hook**: Checks incoming messages before sending to LLM
+1. **Pre-call hook**: Checks incoming user messages before sending to LLM
 2. **History sanitization**: Removes previously blocked message pairs from context
 3. **Conversation validation**: Ensures proper message structure (user/assistant alternation)
-4. **Error handling**:
-   - **Local**: FastAPI proxy converts 400 → 200 to preserve chat context
-   - **EKS**: Direct blocking with error message
+4. **Post-call hook**: Filters LLM responses for prohibited content
+5. **Passthrough mode**: Returns HTTP 200 with violation message (prevents UI context corruption)
+6. **Streaming support**: Works with both streaming and non-streaming requests
+
+**Technical Details:**
+- Uses `ModifyResponseException` with `on_flagged_action: "passthrough"`
+- Includes patch for LiteLLM v1.80.11 streaming bug (see `LITELLM-BUG.md`)
+- Maintains chat context integrity across both local and production environments
 
 **Configure in** `config/litellm_config.yaml`:
 ```yaml
@@ -384,25 +390,33 @@ guardrails:
   - guardrail_name: "custom-content-filter"
     litellm_params:
       guardrail: custom_guardrail.YourGuardrailClass
-      mode: "pre_call"
+      mode: ["pre_call", "post_call"]  # Filter both input and output
       default_on: true
+      on_flagged_action: "passthrough"  # Return 200 with error message
 ```
 
 **Customize the example:**
 1. Edit `config/custom_guardrail.py`
 2. Modify the `patterns` list with your content rules
-3. Adjust blocking logic in `async_pre_call_hook()`
+3. Adjust blocking logic in `async_pre_call_hook()` and `async_post_call_success_hook()`
 4. Redeploy: `make local-deploy` or `make eks-apply`
 
 **Test guardrails:**
 ```bash
-# Run comprehensive guardrail tests
+# Run comprehensive guardrail test suite
+make test-guardrails
+
+# Or run directly
 python3 tests/test-guardrails.py
 
-# Tests verify:
-# - Direct blocking of prohibited content
+# Tests verify (5 tests per model, 10 total):
+# PRE_CALL TESTS:
+# - Direct blocking of prohibited user input
 # - Bypass prevention via history sanitization
 # - Normal conversations work unaffected
+# POST_CALL TESTS:
+# - LLM output filtering (non-streaming)
+# - LLM output filtering (streaming mode)
 ```
 
 This implementation demonstrates enterprise-grade content filtering that can be adapted for:
@@ -410,6 +424,7 @@ This implementation demonstrates enterprise-grade content filtering that can be 
 - Prompt injection prevention
 - Company policy enforcement
 - Compliance requirements (GDPR, HIPAA, etc.)
+- Output safety and content moderation
 
 ### Terraform Variables
 
@@ -494,57 +509,89 @@ curl https://openwebui.bhenning.com/v1/chat/completions \
 
 ## Testing
 
-### Guardrails Testing
+The project includes comprehensive test suites for validating guardrails, model connectivity, and security controls.
 
-Test the custom content filtering system:
+### Complete Test Suite
+
+Run all tests with a single command:
 
 ```bash
-# Run guardrails test suite
+make test-all
+```
+
+This runs:
+1. **Setup validation**: Verifies required tools are installed
+2. **Health checks**: Validates service connectivity
+3. **Model tests**: Tests all 7 LiteLLM models across 3 providers
+4. **Guardrail tests**: Validates pre_call and post_call content filtering
+
+### Guardrails Testing
+
+Test the custom content filtering system with comprehensive pre_call and post_call validation:
+
+```bash
+# Run guardrail test suite
+make test-guardrails
+
+# Or run directly
 python3 tests/test-guardrails.py
 ```
 
-The test suite validates:
-1. **Direct blocking**: Prohibited content is blocked immediately
-2. **Bypass prevention**: Cannot circumvent blocks via conversation history
+The test suite validates (5 tests per model, 10 total):
+
+**PRE_CALL TESTS (Input Filtering):**
+1. **Direct blocking**: User input with prohibited content is blocked
+2. **Bypass prevention**: Conversation history sanitization prevents circumvention
 3. **Normal operation**: Regular conversations work without interference
+
+**POST_CALL TESTS (Output Filtering):**
+4. **Output filtering (non-streaming)**: LLM responses with prohibited content are blocked
+5. **Output filtering (streaming)**: Same as above but validates streaming bug fix
 
 Tests run against both:
 - **AWS Bedrock model**: llama3-2-3b
 - **Perplexity model**: perplexity-sonar
 
-**Test scenarios:**
-- ✅ Blocking works on first attempt
-- ✅ Follow-up questions don't leak blocked content to LLM
-- ✅ Conversation history is sanitized properly
-- ✅ Normal conversations remain unaffected
-
 **Example output:**
 ```
-✓ PASS: Direct mention blocked
-✓ PASS: Bypass prevented (history sanitized)
-✓ PASS: Normal conversation works
+PRE_CALL TESTS (Input Filtering)
+✅ PASS: Direct mention blocked (200 OK with BLOCKED message)
+✅ PASS: Bypass prevented (history sanitized)
+✅ PASS: Normal conversation works
 
-🎉 All tests passed! (6/6)
+POST_CALL TESTS (Output Filtering)
+✅ PASS: LLM output blocked (post_call hook working)
+✅ PASS: LLM output blocked in streaming mode (patch working)
+
+Model 'llama3-2-3b' Results: 5/5 tests passed
+🎉 All tests passed! (10/10)
 ```
 
-### Automated Test Suite
+### Model Connectivity Testing
 
-The project includes comprehensive test scripts to validate LiteLLM deployment and model access:
-
-#### Test Local Deployment
+Test all configured LiteLLM models (7 models across 3 providers):
 
 ```bash
-# Test all models with shell script
-make test-models
+# Test all models
+make test-litellm-models
 
-# Test all models with Python script
-./tests/test-litellm-api.py
+# Test with shell script
+./tests/test-litellm-models-api.sh
+
+# Test with Python script
+python3 tests/test-litellm-models-api.py
 
 # Test with custom endpoint
-ENDPOINT=http://192.168.1.10:4000 ./tests/test-litellm-api.py
+ENDPOINT=http://192.168.1.10:4000 python3 tests/test-litellm-models-api.py
 ```
 
-#### Test Production Deployment
+This validates:
+- ✅ AWS Bedrock access (Nova, Llama models)
+- ✅ Perplexity API access
+- ✅ IRSA authentication (no static AWS keys)
+- ✅ Multi-provider unified API
+
+### Production Deployment Testing
 
 **Important**: LiteLLM is not exposed to the internet for security reasons. It's only accessible internally to OpenWebUI or via port-forwarding.
 
@@ -552,9 +599,11 @@ ENDPOINT=http://192.168.1.10:4000 ./tests/test-litellm-api.py
 # Terminal 1: Start port-forwarding
 make eks-port-forward
 
-# Terminal 2: Run tests
-export LITELLM_MASTER_KEY=your-production-key
-./tests/test-production.sh
+# Terminal 2: Run model tests
+make test-litellm-models
+
+# Terminal 3: Run guardrail tests
+make test-guardrails
 ```
 
 This validates:
@@ -563,6 +612,7 @@ This validates:
 - ✅ Zero-trust network policies (LiteLLM internal-only)
 - ✅ Production EKS deployment
 - ✅ All 7 configured models
+- ✅ Pre_call and post_call guardrails
 
 #### Manual cURL Testing
 
