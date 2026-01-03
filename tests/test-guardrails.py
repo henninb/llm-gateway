@@ -12,7 +12,7 @@ import json
 from typing import Dict, Any, List
 
 # Configuration
-LITELLM_URL = os.getenv("LITELLM_URL", "http://localhost:8000")
+LITELLM_URL = os.getenv("LITELLM_URL", "http://localhost:4000")
 API_KEY = os.getenv("LITELLM_MASTER_KEY", "sk-1234")
 
 # Test both Bedrock and Perplexity models

@@ -33,8 +33,8 @@ local-status: ## Show status of Docker containers, networks, and volumes
 	@docker volume ls --filter name=openwebui
 
 local-port-forward: ## Forward proxy port 8000 to localhost (Ctrl+C to stop)
-	@echo "Forwarding localhost:8000 -> proxy:8000 (press Ctrl+C to stop)"
-	@docker run --rm -it --network llm-gateway-network -p 8000:8000 alpine/socat -d -d TCP-LISTEN:8000,fork,reuseaddr TCP:proxy:8000
+	@echo "Forwarding localhost:4000 -> litellm:4000 (press Ctrl+C to stop)"
+	@docker run --rm -it --network llm-gateway-network -p 4000:4000 alpine/socat -d -d TCP-LISTEN:4000,fork,reuseaddr TCP:litellm:4000
 
 local-destroy: ## Destroy local Docker containers, volumes, networks, and images
 	@echo "Stopping and removing containers, volumes, and networks..."

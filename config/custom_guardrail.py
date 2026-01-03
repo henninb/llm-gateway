@@ -7,7 +7,6 @@ import re
 from typing import Literal
 from litellm.integrations.custom_guardrail import CustomGuardrail
 from litellm.proxy._types import UserAPIKeyAuth
-from litellm.exceptions import BadRequestError
 
 
 class DuckiesBunniesGuardrail(CustomGuardrail):
@@ -79,13 +78,12 @@ class DuckiesBunniesGuardrail(CustomGuardrail):
             for pattern in self.patterns:
                 if re.search(pattern, str(content), re.IGNORECASE):
                     print(f"⚠️ DuckiesBunniesGuardrail: MATCH FOUND in latest message! Pattern={pattern}")
-                    print(f"⚠️ DuckiesBunniesGuardrail: BLOCKING request - raising BadRequestError")
+                    print(f"⚠️ DuckiesBunniesGuardrail: BLOCKING request - raising ModifyResponseException")
 
-                    # Raise exception to block the request
-                    raise BadRequestError(
-                        message="⚠️ BLOCKED: Your message mentions duckies or bunnies. Discussions about cute animals may cause excessive happiness and distraction. Please rephrase your question.",
-                        model=data.get("model", "unknown"),
-                        llm_provider="guardrail"
+                    # Raise passthrough exception - LiteLLM will return 200 with this message
+                    self.raise_passthrough_exception(
+                        violation_message="⚠️ BLOCKED: Your message mentions duckies or bunnies. Discussions about cute animals may cause excessive happiness and distraction. Please rephrase your question.",
+                        request_data=data
                     )
 
         # SANITIZE conversation history - remove message PAIRS containing blocked content
@@ -153,6 +151,7 @@ class DuckiesBunniesGuardrail(CustomGuardrail):
     async def async_post_call_success_hook(
         self,
         user_api_key_dict: UserAPIKeyAuth,
+        data: dict,
         response: dict,
     ):
         """
@@ -163,10 +162,11 @@ class DuckiesBunniesGuardrail(CustomGuardrail):
 
         Args:
             user_api_key_dict: User API key information
+            data: Request data
             response: Response data from LLM
 
         Raises:
-            BadRequestError: If blocked content is detected in response (returns 400)
+            ModifyResponseException: If blocked content is detected in response (returns 200)
         """
         print(f"🔍 DuckiesBunniesGuardrail: async_post_call_success_hook CALLED!")
 
@@ -193,14 +193,12 @@ class DuckiesBunniesGuardrail(CustomGuardrail):
             for pattern in self.patterns:
                 if re.search(pattern, str(content), re.IGNORECASE):
                     print(f"⚠️ DuckiesBunniesGuardrail: MATCH FOUND in LLM response! Pattern={pattern}")
-                    print(f"⚠️ DuckiesBunniesGuardrail: BLOCKING response - raising BadRequestError")
+                    print(f"⚠️ DuckiesBunniesGuardrail: BLOCKING response - raising ModifyResponseException")
 
-                    # Raise exception to block the response
-                    # The proxy will convert this to 200 OK with error message
-                    raise BadRequestError(
-                        message="⚠️ BLOCKED: The response contains mentions of duckies or bunnies. Discussions about cute animals may cause excessive happiness and distraction. Please ask a different question.",
-                        model=response.get("model", "unknown"),
-                        llm_provider="guardrail"
+                    # Raise passthrough exception - LiteLLM will return 200 with this message
+                    self.raise_passthrough_exception(
+                        violation_message="⚠️ BLOCKED: The response contains mentions of duckies or bunnies. Discussions about cute animals may cause excessive happiness and distraction. Please ask a different question.",
+                        request_data=data
                     )
 
             print(f"🔍 DuckiesBunniesGuardrail: No duckies/bunnies detected in LLM response")

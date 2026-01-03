@@ -61,6 +61,7 @@ guardrails:
       guardrail: custom_guardrail.DuckiesBunniesGuardrail
       mode: "pre_call"
       default_on: true
+      on_flagged_action: "passthrough"
 
 # General Settings
 general_settings:

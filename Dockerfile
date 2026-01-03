@@ -1,10 +1,17 @@
-FROM ghcr.io/berriai/litellm:main-latest
+# Pin to specific version with known bug (see docs/litellm-bug-modifyresponseexception-streaming.md)
+# DO NOT upgrade to :main-latest until the bug is fixed upstream
+FROM ghcr.io/berriai/litellm:main-v1.80.11
 
 # Set working directory
 WORKDIR /app
 
 # Verify netstat is available for health checks (fail build if missing)
 RUN which netstat || (echo "ERROR: netstat not found in base image" && exit 1)
+
+# Apply fix for ModifyResponseException streaming bug in LiteLLM 1.80.11
+# See LITELLM-BUG.md for details
+COPY patches/apply_litellm_fix.py /tmp/
+RUN python3 /tmp/apply_litellm_fix.py && rm /tmp/apply_litellm_fix.py
 
 # Create non-root user for running the application
 RUN addgroup -g 1000 litellm && \

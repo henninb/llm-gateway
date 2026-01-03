@@ -1,0 +1,25 @@
+--- a/litellm/proxy/proxy_server.py
++++ b/litellm/proxy/proxy_server.py
+@@ -5098,6 +5098,21 @@
+         _chat_response.choices[0].message.content = e.message  # type: ignore
+         _chat_response.choices[0].finish_reason = "content_filter"  # type: ignore
+
++        # FIX: Initialize litellm_logging_obj if it doesn't exist (for pre-call guardrail exceptions)
++        # This fixes AttributeError when ModifyResponseException is raised from pre-call hooks with streaming
++        if data.get("litellm_logging_obj") is None:
++            import time
++            import uuid
++            from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
++            data["litellm_logging_obj"] = LiteLLMLoggingObj(
++                model=e.model,
++                messages=[],  # No messages sent to LLM (blocked by guardrail)
++                stream=data.get("stream", False),
++                call_type="acompletion",
++                start_time=time.time(),
++                litellm_call_id=str(uuid.uuid4()),
++                function_id=str(uuid.uuid4()),
++            )
++
+         if data.get("stream", None) is not None and data["stream"] is True:
+             _iterator = litellm.utils.ModelResponseIterator(
+                 model_response=_chat_response, convert_to_delta=True
