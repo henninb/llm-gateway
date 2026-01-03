@@ -7,11 +7,9 @@ services:
       dockerfile: Dockerfile
     container_name: litellm
     restart: unless-stopped
-    user: "1000:1000"  # Run as non-root user (matches Dockerfile USER)
+    # user: "1000:1000"  # Run as non-root user (matches Dockerfile USER)
     # ports:
     #   - "4000:4000"  # Port not exposed to host - only accessible within Docker network
-    volumes:
-      - ./config/litellm_config.yaml:/app/config.yaml:ro
     environment:
       - AWS_REGION_NAME=${AWS_REGION:-us-east-1}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
@@ -26,6 +24,22 @@ services:
         aliases:
           - litellm
 
+  proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.proxy
+    container_name: litellm-proxy
+    restart: unless-stopped
+    # user: "1001:1001"  # Run as non-root user (matches Dockerfile USER)
+    # ports:
+    #   - "8000:8000"  # Port not exposed to host - only accessible within Docker network
+    depends_on:
+      - litellm
+    networks:
+      llm-gateway-network:
+        aliases:
+          - proxy
+
   openwebui:
     build:
       context: .
@@ -37,7 +51,7 @@ services:
     volumes:
       - openwebui:/app/backend/data
     environment:
-      - OPENAI_API_BASE_URL=http://litellm:4000/v1
+      - OPENAI_API_BASE_URL=http://proxy:8000/v1
       - OPENAI_API_KEY=${LITELLM_MASTER_KEY}
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
       - DATA_DIR=/app/backend/data
@@ -45,7 +59,7 @@ services:
       - USER_AGENT=OpenWebUI
       - EVALUATION_ARENA_MODELS=["perplexity-sonar-pro","nova-pro","llama3-2-3b"]
     depends_on:
-      - litellm
+      - proxy
     networks:
       llm-gateway-network:
         aliases:

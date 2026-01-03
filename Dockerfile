@@ -13,8 +13,11 @@ RUN addgroup -g 1000 litellm && \
 # Copy configuration file
 COPY config/litellm_config.yaml /app/config.yaml
 
-# Set proper ownership for config file
-RUN chown litellm:litellm /app/config.yaml
+# Copy custom guardrail module
+COPY config/custom_guardrail.py /app/custom_guardrail.py
+
+# Set proper ownership for config files
+RUN chown litellm:litellm /app/config.yaml /app/custom_guardrail.py
 
 # Expose LiteLLM port
 EXPOSE 4000

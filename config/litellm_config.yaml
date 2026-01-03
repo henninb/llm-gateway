@@ -54,6 +54,14 @@ litellm_settings:
   # Cache settings
   cache: false
 
+# Custom guardrails configuration
+guardrails:
+  - guardrail_name: "duckies-bunnies-detector"
+    litellm_params:
+      guardrail: custom_guardrail.DuckiesBunniesGuardrail
+      mode: "pre_call"
+      default_on: true
+
 # General Settings
 general_settings:
   # Master key for API authentication

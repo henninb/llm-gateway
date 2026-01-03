@@ -188,8 +188,9 @@ resource "kubernetes_service" "openwebui" {
 
     annotations = merge(
       {
-        "service.beta.kubernetes.io/aws-load-balancer-type"   = "nlb"
-        "service.beta.kubernetes.io/aws-load-balancer-scheme" = "internet-facing"
+        "service.beta.kubernetes.io/aws-load-balancer-type"            = "nlb"
+        "service.beta.kubernetes.io/aws-load-balancer-scheme"          = "internet-facing"
+        "service.beta.kubernetes.io/aws-load-balancer-security-groups" = aws_security_group.cloudflare_only.id
       },
       var.acm_certificate_arn != "" ? {
         "service.beta.kubernetes.io/aws-load-balancer-ssl-cert"               = var.acm_certificate_arn

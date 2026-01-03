@@ -8,6 +8,8 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 
 ## Architecture
 
+### Production (AWS EKS)
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         AWS EKS Cluster                          │
@@ -15,7 +17,7 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 │  ┌────────────────────┐          ┌─────────────────────┐        │
 │  │   OpenWebUI Pod    │          │   LiteLLM Pod       │        │
 │  │  (Web Interface)   │──────────│   (LLM Proxy)       │        │
-│  │                    │          │                     │        │
+│  │                    │          │   + Guardrails      │        │
 │  │  Port: 8080        │          │   Port: 4000        │        │
 │  └────────┬───────────┘          └──────────┬──────────┘        │
 │           │                                  │                   │
@@ -29,18 +31,44 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
     │                │                        │
     │   NLB (HTTPS)  │                        └──> Perplexity API
     │   Port: 443    │
-    │                │
+    │  CloudFlare    │  ← Only CloudFlare IPs allowed
+    │  IPs Only SG   │
     └───────┬────────┘
             │
             │
     ┌───────▼────────┐
     │   CloudFlare   │
-    │   DNS (Proxy)  │
+    │   DNS Only     │
     └───────┬────────┘
             │
             ▼
     openwebui.bhenning.com
+
 ```
+
+### Local Development (Docker Compose)
+
+```
+┌──────────────────────────────────────────────────────┐
+│              Docker Compose Network                   │
+│                                                        │
+│  ┌────────────────┐   ┌─────────────┐   ┌─────────┐ │
+│  │   OpenWebUI    │──>│    Proxy    │──>│ LiteLLM │ │
+│  │  Port: 3000    │   │  Port: 8000 │   │  4000   │ │
+│  │                │   │  (FastAPI)  │   │ +Guard  │ │
+│  └────────────────┘   └─────────────┘   └─────────┘ │
+│                        Converts 400→200               │
+│                        (preserves chat context)       │
+└──────────────────────────────────────────────────────┘
+         │                                  │
+         │                                  ├──> AWS Bedrock
+         └─> http://localhost:3000          └──> Perplexity API
+```
+
+**Key Differences:**
+- **EKS**: Direct LiteLLM access, guardrails return 400 errors
+- **Local**: Proxy intercepts 400 errors → converts to 200 with error message
+- **Both**: Same guardrail logic, same content filtering
 
 ## Key Features
 
@@ -66,9 +94,11 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 
 ### Features
 - **Arena Mode**: Blind model comparison (3 models: Perplexity, AWS, Meta)
+- **Custom Guardrails**: Extensible content filtering system (example implementation included)
 - **Persistent Storage**: User data and conversations stored in EBS volumes
 - **Auto-Scaling**: EKS node group scales based on demand
 - **Health Checks**: Kubernetes liveness/readiness probes
+- **Automated DNS Management**: CloudFlare API integration for DNS setup
 
 ## Prerequisites
 
@@ -95,12 +125,23 @@ cd llm-gateway
 2. Create `.secrets` file:
 ```bash
 cat > .secrets <<EOF
+# Required for AWS Bedrock access
 AWS_ACCESS_KEY_ID=your-access-key
 AWS_SECRET_ACCESS_KEY=your-secret-key
 AWS_REGION=us-east-1
+
+# Required for LiteLLM and OpenWebUI
 LITELLM_MASTER_KEY=$(openssl rand -hex 32)
 WEBUI_SECRET_KEY=$(openssl rand -hex 32)
+
+# Required for Perplexity models
 PERPLEXITY_API_KEY=your-perplexity-key
+
+# Optional: For automated CloudFlare DNS management
+# Get from: https://dash.cloudflare.com/profile/api-tokens
+# Or use Global API Key from: https://dash.cloudflare.com/profile/api-tokens
+CF_API_KEY=your-cloudflare-api-key
+CF_EMAIL=your-cloudflare-email
 EOF
 ```
 
@@ -110,6 +151,8 @@ make local-deploy
 ```
 
 4. Access OpenWebUI at http://localhost:3000
+
+**Note**: Local deployment includes a FastAPI proxy that sits between OpenWebUI and LiteLLM. This proxy converts guardrail blocking errors (HTTP 400) to successful responses (HTTP 200) with the error message in the content, preventing chat context from breaking in the UI.
 
 ### Available Makefile Commands
 
@@ -158,7 +201,9 @@ make eks-apply            # Deploy applications to EKS
 make eks-destroy          # Destroy EKS deployment
 make eks-secrets-populate # Populate AWS Secrets Manager with API keys
 make eks-port-forward     # Forward LiteLLM from EKS to localhost:4000
-make eks-verify-dns       # Verify CloudFlare DNS configuration
+make eks-verify-cloudflare # Verify CloudFlare IP ranges in NLB security group
+make eks-verify-cloudflare-dns # Auto-setup/verify CloudFlare DNS (recommended)
+make eks-test-cloudflare-restriction # Test NLB only accepts CloudFlare IPs
 ```
 
 ## AWS EKS Deployment
@@ -210,22 +255,100 @@ make eks-apply
 
 ### Step 5: Configure DNS
 
-Get the LoadBalancer DNS and verify configuration:
+#### Automated Setup (Recommended)
+
+The automated approach uses the CloudFlare API to create and manage DNS records:
+
 ```bash
-# Verify DNS configuration (checks LoadBalancer, DNS, CNAME, and HTTPS)
-make eks-verify-dns
+# Ensure CF_API_KEY and CF_EMAIL are in your .secrets file
+# Then run automated DNS setup
+make eks-verify-cloudflare-dns
 
 # Or specify a custom domain
-DOMAIN=openwebui.yourdomain.com make eks-verify-dns
+DOMAIN=openwebui.bhenning.com make eks-verify-cloudflare-dns
 ```
 
-If DNS is not configured, create a CNAME record in CloudFlare:
-- Type: CNAME
-- Name: openwebui (or your subdomain)
-- Target: [LoadBalancer DNS shown by eks-verify-dns]
-- Proxy status: DNS only (gray cloud icon)
+This command will:
+1. Check if DNS record exists
+2. Create CNAME record if missing (pointing to LoadBalancer)
+3. Update CNAME if it points to wrong target
+4. Verify DNS propagation
+5. Test HTTPS connectivity
 
-Then run the verification command again to confirm the configuration is correct.
+**How to get CloudFlare credentials:**
+- **API Token** (recommended): Go to https://dash.cloudflare.com/profile/api-tokens → Create Token → Use "Edit zone DNS" template
+- **Global API Key** (legacy): Go to https://dash.cloudflare.com/profile/api-tokens → View Global API Key
+
+Add to your `.secrets` file:
+```bash
+CF_API_KEY=your-global-api-key-or-token
+CF_EMAIL=your-cloudflare-email
+```
+
+#### Manual Setup (Alternative)
+
+If you prefer manual DNS configuration:
+
+1. Get the LoadBalancer DNS name:
+```bash
+kubectl get svc openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+```
+
+2. Create a CNAME record in CloudFlare:
+   - Type: CNAME
+   - Name: openwebui (or your subdomain)
+   - Target: [LoadBalancer DNS from step 1]
+   - Proxy status: DNS only (gray cloud icon)
+
+3. Verify configuration:
+```bash
+dig +short openwebui.bhenning.com
+curl -I https://openwebui.bhenning.com
+```
+
+### Step 6: Verify CloudFlare Security
+
+The NLB is automatically configured with a security group that **ONLY allows CloudFlare IP ranges**, preventing direct access from non-CloudFlare sources.
+
+#### Verify Security Configuration
+
+Test that the NLB properly restricts access to CloudFlare IPs only:
+
+```bash
+# Test that non-CloudFlare IPs cannot access NLB directly
+make eks-test-cloudflare-restriction
+```
+
+This test will:
+1. Check your public IP address
+2. Verify it's not in CloudFlare IP ranges
+3. Attempt direct connection to NLB (should timeout/fail)
+4. Verify only CloudFlare security group is attached
+5. Confirm access through domain works (via CloudFlare)
+
+**Expected result**: `✅ SUCCESS: NLB is properly restricted to CloudFlare IPs`
+
+#### Keep CloudFlare IP Ranges Updated
+
+CloudFlare occasionally updates their IP ranges. Verify and update monthly:
+
+```bash
+# Check if CloudFlare IP ranges are current
+make eks-verify-cloudflare
+
+# If outdated, update with:
+make eks-apply
+```
+
+#### (Optional) Additional CloudFlare Security
+
+Additional security features available with CloudFlare:
+- ✅ Geo-restriction (US-only access with HTTP 403 for blocked users)
+- ✅ DDoS protection and WAF
+- ✅ CloudFlare proxy mode (orange cloud)
+- ✅ No additional AWS costs (uses CloudFlare free/pro plan)
+
+To enable these features, configure CloudFlare firewall rules and enable proxy mode (orange cloud) in your DNS settings.
 
 ## Configuration
 
@@ -236,6 +359,57 @@ Edit `config/litellm_config.yaml` to:
 - Configure rate limits
 - Set budget limits
 - Customize CORS policies
+
+### Custom Guardrails (Example Implementation)
+
+The project includes a **demonstration** of custom content filtering using LiteLLM's guardrails system. This example blocks specific content patterns while preventing chat context corruption.
+
+**Example guardrail** (`config/custom_guardrail.py`):
+- Blocks messages containing specific keywords/patterns
+- Sanitizes conversation history to prevent bypass attempts
+- Returns user-friendly error messages
+- Works in both local (Docker) and EKS deployments
+
+**How it works:**
+1. **Pre-call hook**: Checks incoming messages before sending to LLM
+2. **History sanitization**: Removes previously blocked message pairs from context
+3. **Conversation validation**: Ensures proper message structure (user/assistant alternation)
+4. **Error handling**:
+   - **Local**: FastAPI proxy converts 400 → 200 to preserve chat context
+   - **EKS**: Direct blocking with error message
+
+**Configure in** `config/litellm_config.yaml`:
+```yaml
+guardrails:
+  - guardrail_name: "custom-content-filter"
+    litellm_params:
+      guardrail: custom_guardrail.YourGuardrailClass
+      mode: "pre_call"
+      default_on: true
+```
+
+**Customize the example:**
+1. Edit `config/custom_guardrail.py`
+2. Modify the `patterns` list with your content rules
+3. Adjust blocking logic in `async_pre_call_hook()`
+4. Redeploy: `make local-deploy` or `make eks-apply`
+
+**Test guardrails:**
+```bash
+# Run comprehensive guardrail tests
+python3 tests/test-guardrails.py
+
+# Tests verify:
+# - Direct blocking of prohibited content
+# - Bypass prevention via history sanitization
+# - Normal conversations work unaffected
+```
+
+This implementation demonstrates enterprise-grade content filtering that can be adapted for:
+- PII detection and redaction
+- Prompt injection prevention
+- Company policy enforcement
+- Compliance requirements (GDPR, HIPAA, etc.)
 
 ### Terraform Variables
 
@@ -319,6 +493,39 @@ curl https://openwebui.bhenning.com/v1/chat/completions \
 ```
 
 ## Testing
+
+### Guardrails Testing
+
+Test the custom content filtering system:
+
+```bash
+# Run guardrails test suite
+python3 tests/test-guardrails.py
+```
+
+The test suite validates:
+1. **Direct blocking**: Prohibited content is blocked immediately
+2. **Bypass prevention**: Cannot circumvent blocks via conversation history
+3. **Normal operation**: Regular conversations work without interference
+
+Tests run against both:
+- **AWS Bedrock model**: llama3-2-3b
+- **Perplexity model**: perplexity-sonar
+
+**Test scenarios:**
+- ✅ Blocking works on first attempt
+- ✅ Follow-up questions don't leak blocked content to LLM
+- ✅ Conversation history is sanitized properly
+- ✅ Normal conversations remain unaffected
+
+**Example output:**
+```
+✓ PASS: Direct mention blocked
+✓ PASS: Bypass prevented (history sanitized)
+✓ PASS: Normal conversation works
+
+🎉 All tests passed! (6/6)
+```
 
 ### Automated Test Suite
 
@@ -468,27 +675,149 @@ make local-port-forward
 
 Both commands forward LiteLLM to `localhost:4000` for testing with curl or Python scripts. Press Ctrl+C to stop forwarding.
 
-### DNS Verification
+### DNS Management & Verification
 
-Verify CloudFlare DNS is correctly configured:
+#### Automated DNS Setup (Recommended)
+
+Automatically create and verify CloudFlare DNS records:
 
 ```bash
-# Verify default domain (openwebui.bhenning.com)
-make eks-verify-dns
+# Setup/verify DNS using CloudFlare API
+make eks-verify-cloudflare-dns
 
-# Verify custom domain
-DOMAIN=openwebui.yourdomain.com make eks-verify-dns
+# Or specify custom domain
+DOMAIN=openwebui.bhenning.com make eks-verify-cloudflare-dns
 ```
 
-This command checks:
-1. **LoadBalancer hostname** from Kubernetes service
-2. **DNS resolution** of your domain
-3. **CNAME record** configuration in CloudFlare
-4. **HTTPS connectivity** to the endpoint
+This command:
+1. **Authenticates** with CloudFlare using credentials from `.secrets`
+2. **Checks** if DNS record exists
+3. **Creates** CNAME record if missing
+4. **Updates** record if pointing to wrong target
+5. **Verifies** DNS propagation (local and CloudFlare DNS)
+6. **Tests** HTTPS connectivity
 
-The command displays the actual `kubectl`, `dig`, and `curl` commands being executed for full transparency. If any issues are found, it provides specific instructions to fix them.
+**Automatic actions:**
+- ✅ Creates CNAME → LoadBalancer hostname
+- ✅ Sets TTL to auto (1 = automatic)
+- ✅ Disables CloudFlare proxy (DNS only mode)
+- ✅ Validates with both local DNS and CloudFlare DNS (1.1.1.1)
+
+**Requirements:**
+- `CF_API_KEY` and `CF_EMAIL` in `.secrets` file
+- See Step 5 in deployment guide for credential setup
+
+#### Manual DNS Check
+
+For manual verification without CloudFlare API:
+
+```bash
+# Check LoadBalancer hostname
+kubectl get svc openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+
+# Verify DNS resolves
+dig +short openwebui.bhenning.com
+
+# Test HTTPS
+curl -I https://openwebui.bhenning.com
+```
+
+### CloudFlare Security Verification
+
+The NLB is configured with a security group that **only accepts traffic from CloudFlare IP ranges**. This prevents direct access bypassing CloudFlare.
+
+#### Test Access Restriction
+
+Verify that the NLB blocks non-CloudFlare IPs:
+
+```bash
+# Test that NLB only accepts CloudFlare IPs
+make eks-test-cloudflare-restriction
+```
+
+This test:
+1. **Identifies your public IP** address
+2. **Checks** if IP is in CloudFlare ranges
+3. **Attempts** direct connection to NLB (should fail/timeout)
+4. **Verifies** only CloudFlare security group is attached
+5. **Confirms** access through domain works (via CloudFlare)
+
+**Expected result**: `✅ SUCCESS: NLB is properly restricted to CloudFlare IPs`
+
+If the test fails, it indicates:
+- Your IP is actually in CloudFlare ranges (inconclusive)
+- Security group allows additional IPs (configuration issue)
+- VPC default security group is attached (needs investigation)
+
+#### Verify IP Ranges Are Current
+
+CloudFlare occasionally updates their IP ranges. Verify monthly:
+
+```bash
+# Check CloudFlare IP ranges are up-to-date
+make eks-verify-cloudflare
+```
+
+This command:
+1. Fetches current CloudFlare IPv4 and IPv6 ranges from cloudflare.com
+2. Compares with configured security group rules (count and sample check)
+3. Validates specific IP ranges are present
+4. Provides update instructions if outdated
+
+**If ranges are outdated:**
+```bash
+# Update security group with latest CloudFlare IPs
+make eks-apply
+```
+
+**Recommendation**: Run `make eks-verify-cloudflare` monthly, as CloudFlare updates their IP ranges periodically.
 
 ## Troubleshooting
+
+### DNS Issues
+
+#### DNS Not Resolving
+
+If `dig +short openwebui.bhenning.com` returns nothing:
+
+```bash
+# Check CloudFlare DNS directly (bypasses local cache)
+dig @1.1.1.1 +short openwebui.bhenning.com
+
+# If CloudFlare DNS works but local doesn't, clear DNS cache:
+sudo systemctl restart NetworkManager
+
+# Or if using systemd-resolved:
+sudo resolvectl flush-caches
+```
+
+#### Local DNS Cache Stale
+
+If CloudFlare DNS shows the correct IP but your local `dig` doesn't:
+
+```bash
+# Restart NetworkManager (most Linux distributions)
+sudo systemctl restart NetworkManager
+
+# Or flush systemd-resolved cache
+sudo resolvectl flush-caches
+
+# Verify DNS now resolves
+dig +short openwebui.bhenning.com
+```
+
+#### Access Site Despite DNS Issues
+
+You can access the site directly using the LoadBalancer hostname:
+
+```bash
+# Get LoadBalancer hostname
+LB=$(kubectl get svc openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+# Access directly
+curl https://$LB
+# Or in browser: https://a9d0ae51cec214c1e83976f219737243-058ee2da301031a2.elb.us-east-1.amazonaws.com
+```
 
 ### Check Pod Status
 ```bash
@@ -572,12 +901,14 @@ terraform apply
 
 ## Future Enhancements
 
+- [x] **Custom guardrails/content filtering** (example implementation included)
+- [x] **Automated CloudFlare DNS management** (via API)
 - [ ] Prometheus + Grafana observability stack
 - [ ] Custom function calling tools
 - [ ] RAG with vector database (Pinecone/Weaviate)
 - [ ] Cost analytics dashboard
 - [ ] Automated API key rotation
-- [ ] Content moderation/PII detection
+- [ ] Advanced content moderation (PII detection, prompt injection prevention)
 - [ ] Multi-region deployment
 - [ ] OAuth/SSO authentication
 
