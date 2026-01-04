@@ -9,7 +9,7 @@ DOMAIN ?= openwebui.bhenning.com
 help: ## Show this help message
 	@echo "LLM Gateway - Available Commands:"
 	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-28s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-33s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 
 validate-setup: ## Validate required tools are installed
