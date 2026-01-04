@@ -10,41 +10,7 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 
 ### Production (AWS EKS)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         AWS EKS Cluster                          │
-│                                                                   │
-│  ┌────────────────────┐          ┌─────────────────────┐        │
-│  │   OpenWebUI Pod    │          │   LiteLLM Pod       │        │
-│  │  (Web Interface)   │──────────│   (LLM Proxy)       │        │
-│  │                    │          │   + Guardrails      │        │
-│  │  Port: 8080        │          │   Port: 4000        │        │
-│  └────────┬───────────┘          └──────────┬──────────┘        │
-│           │                                  │                   │
-│           │                                  │                   │
-│  Network Policies (Zero-Trust Isolation)    │                   │
-│           │                                  │                   │
-└───────────┼──────────────────────────────────┼───────────────────┘
-            │                                  │
-            │                                  ├──> AWS Bedrock
-    ┌───────▼────────┐                        │    (Nova, Llama, etc.)
-    │                │                        │
-    │   NLB (HTTPS)  │                        └──> Perplexity API
-    │   Port: 443    │
-    │  CloudFlare    │  ← Only CloudFlare IPs allowed
-    │  IPs Only SG   │
-    └───────┬────────┘
-            │
-            │
-    ┌───────▼────────┐
-    │   CloudFlare   │
-    │   DNS Only     │
-    └───────┬────────┘
-            │
-            ▼
-    openwebui.bhenning.com
-
-```
+![AWS EKS Architecture](architecture.png)
 
 ### Local Development (Docker Compose)
 
@@ -87,12 +53,13 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 - **ECR for Container Images**: Eliminates Docker Hub rate limits
 
 ### Multi-Provider Support
-- **AWS Bedrock**: Nova Pro, Llama 3.2
-- **Perplexity**: Sonar Pro, Sonar Deep Research
+- **AWS Bedrock Nova**: nova-micro, nova-lite, nova-pro
+- **AWS Bedrock Llama**: llama3-2-1b, llama3-2-3b
+- **Perplexity**: perplexity-sonar, perplexity-sonar-pro
 - **Unified API**: OpenAI-compatible endpoint for all models
 
 ### Features
-- **Arena Mode**: Blind model comparison (3 models: Perplexity, AWS, Meta)
+- **Arena Mode**: Blind model comparison (3 models: perplexity-sonar-pro, nova-pro, llama3-2-3b)
 - **Custom Guardrails**: Extensible content filtering system with streaming support (example implementation included)
 - **Persistent Storage**: User data and conversations stored in EBS volumes
 - **Auto-Scaling**: EKS node group scales based on demand
