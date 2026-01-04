@@ -35,17 +35,69 @@ if [ -z "$LITELLM_MASTER_KEY" ]; then
   exit 1
 fi
 
-# Check if containers are running
-if ! docker ps --format '{{.Names}}' | grep -q '^litellm$'; then
-  echo -e "${RED}ERROR: LiteLLM container is not running${NC}"
-  echo ""
-  echo "Start containers first with one of:"
-  echo "  make local-up          # Start containers"
-  echo "  make local-validate    # Start, test, and stop containers"
-  echo ""
+# Extract host and port from endpoint
+ENDPOINT_HOST=$(echo "$ENDPOINT" | sed -E 's|^https?://([^:/]+).*|\1|')
+ENDPOINT_PORT=$(echo "$ENDPOINT" | sed -E 's|^https?://[^:]+:([0-9]+).*|\1|')
+
+# If port not found in URL, assume default port based on protocol
+if [ "$ENDPOINT_PORT" = "$ENDPOINT" ]; then
+  if echo "$ENDPOINT" | grep -q "^https://"; then
+    ENDPOINT_PORT=443
+  else
+    ENDPOINT_PORT=4000
+  fi
+fi
+
+# Validate that port is available and service is responding
+echo "Checking if endpoint is available: $ENDPOINT"
+MAX_RETRIES=30
+RETRY_DELAY=2
+retry_count=0
+
+while [ $retry_count -lt $MAX_RETRIES ]; do
+  # Check if port is open
+  if command -v nc >/dev/null 2>&1; then
+    # Use netcat if available
+    if nc -z -w 2 "$ENDPOINT_HOST" "$ENDPOINT_PORT" 2>/dev/null; then
+      echo -e "${GREEN}✓ Port $ENDPOINT_PORT is open${NC}"
+
+      # Try to hit health endpoint
+      health_response=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$ENDPOINT/health" 2>/dev/null)
+      if [ "$health_response" = "200" ] || [ "$health_response" = "404" ]; then
+        echo -e "${GREEN}✓ Service is responding${NC}"
+        break
+      else
+        echo -e "${YELLOW}Port is open but service not ready yet (attempt $((retry_count + 1))/$MAX_RETRIES)${NC}"
+      fi
+    else
+      echo -e "${YELLOW}Waiting for port $ENDPOINT_PORT to be available (attempt $((retry_count + 1))/$MAX_RETRIES)${NC}"
+    fi
+  else
+    # Fallback: try curl directly
+    if curl -s --max-time 2 "$ENDPOINT/health" >/dev/null 2>&1 || curl -s --max-time 2 "$ENDPOINT/v1/models" >/dev/null 2>&1; then
+      echo -e "${GREEN}✓ Service is responding${NC}"
+      break
+    else
+      echo -e "${YELLOW}Waiting for service at $ENDPOINT (attempt $((retry_count + 1))/$MAX_RETRIES)${NC}"
+    fi
+  fi
+
+  retry_count=$((retry_count + 1))
+  if [ $retry_count -lt $MAX_RETRIES ]; then
+    sleep $RETRY_DELAY
+  fi
+done
+
+if [ $retry_count -eq $MAX_RETRIES ]; then
+  echo -e "${RED}ERROR: Service at $ENDPOINT is not available after $((MAX_RETRIES * RETRY_DELAY)) seconds${NC}"
+  echo "Please ensure:"
+  echo "  1. The service is running (try: make local-deploy or make eks-port-forward)"
+  echo "  2. The endpoint is correct: $ENDPOINT"
+  echo "  3. Port $ENDPOINT_PORT is accessible from this machine"
   exit 1
 fi
 
+echo ""
 echo "Testing all LiteLLM models"
 echo "Endpoint: $ENDPOINT"
 echo ""

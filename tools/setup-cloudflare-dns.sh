@@ -230,6 +230,20 @@ if [ -n "$CNAME_RESULT" ]; then
     printf "  %b✓ CNAME points to correct LoadBalancer%b\n" "$GREEN" "$NC"
   else
     printf "  %b⚠ CNAME points to different target%b\n" "$YELLOW" "$NC"
+    printf "\n"
+    printf "  %b→ Clearing local DNS cache...%b\n" "$YELLOW" "$NC"
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager; then
+      printf "  Running: sudo systemctl restart NetworkManager\n"
+      sudo systemctl restart NetworkManager
+      printf "  %b✓ NetworkManager restarted%b\n" "$GREEN" "$NC"
+    elif command -v resolvectl >/dev/null 2>&1; then
+      printf "  Running: sudo resolvectl flush-caches\n"
+      sudo resolvectl flush-caches
+      printf "  %b✓ DNS cache flushed%b\n" "$GREEN" "$NC"
+    else
+      printf "  %b⚠ Could not detect DNS cache service%b\n" "$YELLOW" "$NC"
+      printf "  Please manually restart your DNS service\n"
+    fi
   fi
 else
   printf "  %b⚠ No CNAME record found in DNS yet%b\n" "$YELLOW" "$NC"

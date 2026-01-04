@@ -1,33 +1,28 @@
-# AWS Secrets Manager Secret
-resource "aws_secretsmanager_secret" "api_keys" {
-  name                    = var.secrets_manager_secret_name
-  description             = "API keys for LLM Gateway (Perplexity, LiteLLM Master Key, WebUI Secret)"
-  recovery_window_in_days = 0 # Force immediate deletion to allow recreation
+# AWS Secrets Manager Secret (created by eks-cluster module)
+# This module references the secret created by the cluster infrastructure
 
-  tags = {
-    Name        = "llm-gateway-api-keys"
-    Project     = "llm-gateway"
-    ManagedBy   = "terraform"
-    Environment = var.environment
-  }
+# Data source to reference the existing secret
+data "aws_secretsmanager_secret" "api_keys" {
+  name = var.secrets_manager_secret_name
 }
 
 # Data source to read secret values
 data "aws_secretsmanager_secret_version" "api_keys" {
-  secret_id = aws_secretsmanager_secret.api_keys.id
+  secret_id = data.aws_secretsmanager_secret.api_keys.id
 }
 
-# Output for manual secret population
+# Output for reference
 output "secrets_manager_secret_name" {
-  description = "Name of the Secrets Manager secret - populate with API keys manually"
-  value       = aws_secretsmanager_secret.api_keys.name
+  description = "Name of the Secrets Manager secret - populate with API keys via Makefile"
+  value       = data.aws_secretsmanager_secret.api_keys.name
 }
 
 output "secrets_manager_populate_command" {
   description = "Command to populate the secret with API keys"
   value       = <<-EOT
+    # Automated via Makefile: make eks-secrets-populate
     aws secretsmanager put-secret-value \
-      --secret-id ${aws_secretsmanager_secret.api_keys.name} \
+      --secret-id ${data.aws_secretsmanager_secret.api_keys.name} \
       --secret-string '{
         "PERPLEXITY_API_KEY": "your-perplexity-api-key",
         "LITELLM_MASTER_KEY": "your-litellm-master-key",

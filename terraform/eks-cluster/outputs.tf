@@ -75,3 +75,13 @@ output "ebs_csi_driver_role_arn" {
   description = "IAM role ARN for EBS CSI driver"
   value       = aws_iam_role.ebs_csi_driver.arn
 }
+
+output "secrets_manager_secret_name" {
+  description = "Name of the Secrets Manager secret for API keys"
+  value       = aws_secretsmanager_secret.api_keys.name
+}
+
+output "secrets_manager_secret_arn" {
+  description = "ARN of the Secrets Manager secret for API keys"
+  value       = aws_secretsmanager_secret.api_keys.arn
+}

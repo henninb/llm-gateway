@@ -123,7 +123,22 @@ eks-cluster-kubeconfig: ## Configure kubectl for EKS cluster
 	@aws eks update-kubeconfig --region $(AWS_REGION) --name llm-gateway-eks
 
 # EKS Secrets Management
-eks-secrets-populate: ## Populate AWS Secrets Manager with API keys (auto-sources .secrets if exists)
+eks-secrets-ensure: ## Ensure AWS Secrets Manager secret exists (idempotent, creates if missing)
+	@echo "Checking if Secrets Manager secret exists..."
+	@if aws secretsmanager describe-secret --secret-id llm-gateway/api-keys --region $(AWS_REGION) >/dev/null 2>&1; then \
+		echo "✓ Secret 'llm-gateway/api-keys' already exists"; \
+	else \
+		echo "Secret doesn't exist, creating via Terraform..."; \
+		cd terraform/eks-cluster && \
+		if [ ! -d .terraform ]; then \
+			echo "Initializing Terraform for eks-cluster..."; \
+			terraform init; \
+		fi && \
+		terraform apply -target=aws_secretsmanager_secret.api_keys -auto-approve && \
+		echo "✓ Secret created successfully"; \
+	fi
+
+eks-secrets-populate: eks-secrets-ensure ## Populate AWS Secrets Manager with API keys (auto-sources .secrets if exists)
 	@if [ -f .secrets ]; then \
 		echo "Loading secrets from .secrets file..."; \
 		set -a && . ./.secrets && set +a && \
@@ -141,8 +156,6 @@ eks-secrets-populate: ## Populate AWS Secrets Manager with API keys (auto-source
 			echo "✓ Secrets populated successfully"; \
 		else \
 			echo "✗ Failed to populate secrets"; \
-			echo "The secret 'llm-gateway/api-keys' doesn't exist yet."; \
-			echo "Run: cd terraform/eks && terraform init && terraform apply -target=aws_secretsmanager_secret.api_keys"; \
 			exit 1; \
 		fi; \
 	else \
@@ -162,8 +175,6 @@ eks-secrets-populate: ## Populate AWS Secrets Manager with API keys (auto-source
 			echo "✓ Secrets populated successfully"; \
 		else \
 			echo "✗ Failed to populate secrets"; \
-			echo "The secret 'llm-gateway/api-keys' doesn't exist yet."; \
-			echo "Run: cd terraform/eks && terraform init && terraform apply -target=aws_secretsmanager_secret.api_keys"; \
 			exit 1; \
 		fi; \
 	fi
