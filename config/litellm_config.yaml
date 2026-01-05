@@ -3,44 +3,54 @@
 
 model_list:
   # Perplexity Models (work locally with API key)
+  # Streaming disabled for reliable input/output content filtering
+  # async_post_call_success_hook receives complete responses for guardrail checks
   - model_name: perplexity-sonar
     litellm_params:
       model: perplexity/sonar
       api_key: os.environ/PERPLEXITY_API_KEY
+      stream: false  # Required for complete response filtering
 
   - model_name: perplexity-sonar-pro
     litellm_params:
       model: perplexity/sonar-pro
       api_key: os.environ/PERPLEXITY_API_KEY
+      stream: false  # Required for complete response filtering
 
   # Amazon Nova Models - NO PAYMENT VALIDATION REQUIRED
   # These are AWS's native models and work immediately after enabling Bedrock
   # Require only: AWS credentials/IAM role + Bedrock access enabled (no AWS Marketplace)
+  # Streaming disabled for reliable input/output content filtering
 
   - model_name: nova-micro
     litellm_params:
       model: bedrock/amazon.nova-micro-v1:0
       aws_region_name: us-east-1
+      stream: false  # Required for complete response filtering
 
   - model_name: nova-lite
     litellm_params:
       model: bedrock/amazon.nova-lite-v1:0
       aws_region_name: us-east-1
+      stream: false  # Required for complete response filtering
 
   - model_name: nova-pro
     litellm_params:
       model: bedrock/amazon.nova-pro-v1:0
       aws_region_name: us-east-1
+      stream: false  # Required for complete response filtering
 
   - model_name: llama3-2-1b
     litellm_params:
       model: bedrock/us.meta.llama3-2-1b-instruct-v1:0
       aws_region_name: us-east-1
+      stream: false  # Required for complete response filtering
 
   - model_name: llama3-2-3b
     litellm_params:
       model: bedrock/us.meta.llama3-2-3b-instruct-v1:0
       aws_region_name: us-east-1
+      stream: false  # Required for complete response filtering
 
 # LiteLLM Settings
 litellm_settings:

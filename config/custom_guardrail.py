@@ -22,6 +22,8 @@ class DuckiesBunniesGuardrail(CustomGuardrail):
             r'\bbunny|bunnies\b',
             r'\brabbit(s)?\b'
         ]
+        print(f"🚨🚨🚨 DuckiesBunniesGuardrail: __init__ called! Guardrail instance created")
+        print(f"🚨 DuckiesBunniesGuardrail: kwargs = {kwargs}")
 
     async def async_pre_call_hook(
         self,
@@ -47,7 +49,10 @@ class DuckiesBunniesGuardrail(CustomGuardrail):
         Raises:
             BadRequestError: If blocked content is detected in latest message (returns 400)
         """
-        print(f"🔍 DuckiesBunniesGuardrail: async_pre_call_hook CALLED! call_type={call_type}")
+        print(f"🚨🚨🚨 DuckiesBunniesGuardrail: async_pre_call_hook STARTED! call_type={call_type}")
+        print(f"🚨 DuckiesBunniesGuardrail: data.keys() = {data.keys()}")
+        print(f"🚨 DuckiesBunniesGuardrail: model = {data.get('model', 'NO MODEL')}")
+        print(f"🚨 DuckiesBunniesGuardrail: stream = {data.get('stream', 'NO STREAM KEY')}")
 
         # Only check completion requests
         if call_type not in ["completion", "acompletion"]:
@@ -163,15 +168,28 @@ class DuckiesBunniesGuardrail(CustomGuardrail):
             # But if it does, return original data to avoid breaking the request
             return data
 
-        # CRITICAL FIX: Force stream=false because post_call guardrails don't work with streaming
-        # OpenWebUI sends stream=true by default, but LiteLLM's post_call hooks are never
-        # called for streaming responses, which means blocked content bypasses the guardrail
-        if data.get("stream", False):
-            print(f"⚠️ DuckiesBunniesGuardrail: Forcing stream=false (was stream=true)")
-            print(f"⚠️ DuckiesBunniesGuardrail: Streaming disabled to enable output filtering")
-            data["stream"] = False
+        # FORCE stream=false to ensure async_post_call_success_hook is called
+        # OpenWebUI sends stream=true which overrides litellm_config.yaml settings
+        # We need stream=false to enable proper content filtering on complete responses
+        model = data.get("model", "")
+        original_stream = data.get('stream', False)
+        print(f"🚨 DuckiesBunniesGuardrail: model={model}, client requested stream={original_stream}")
+
+        # Store original stream value in metadata BEFORE forcing it to false
+        if 'metadata' not in data:
+            data['metadata'] = {}
+        data['metadata']['original_stream_request'] = original_stream
+
+        # FORCE stream to false - this is CRITICAL for content filtering to work
+        data['stream'] = False
+        print(f"🚨🚨🚨 DuckiesBunniesGuardrail: FORCED stream=false (was {original_stream})")
+        print(f"🚨 DuckiesBunniesGuardrail: This ensures async_post_call_success_hook will be called")
 
         print(f"🔍 DuckiesBunniesGuardrail: Conversation cleaned, sending {len(cleaned_messages)} messages to LLM")
+        print(f"🚨🚨🚨 DuckiesBunniesGuardrail: async_pre_call_hook COMPLETED! Returning modified data")
+        print(f"🚨🚨🚨 DuckiesBunniesGuardrail: FINAL CHECK - data['stream'] = {data.get('stream')}")
+        print(f"🚨🚨🚨 DuckiesBunniesGuardrail: FINAL CHECK - data['model'] = {data.get('model')}")
+
         return data
 
     def _check_content_for_blocked_words(self, content: str, data: dict, hook_name: str):
@@ -183,52 +201,33 @@ class DuckiesBunniesGuardrail(CustomGuardrail):
             data: Request data (for exception raising)
             hook_name: Name of the hook calling this (for logging)
         """
+        print(f"🔍🔍🔍 _check_content_for_blocked_words CALLED from [{hook_name}]")
+        print(f"🔍 _check_content: content length = {len(content) if content else 0}")
+        print(f"🔍 _check_content: content type = {type(content)}")
+
         if not content:
+            print(f"⚠️ _check_content [{hook_name}]: NO CONTENT - returning early")
             return
 
-        print(f"🔍 DuckiesBunniesGuardrail [{hook_name}]: Checking content: {content[:100]}...")
+        print(f"🔍 _check_content [{hook_name}]: Content preview: {content[:100]}...")
+        print(f"🔍 _check_content [{hook_name}]: Checking against {len(self.patterns)} patterns: {self.patterns}")
 
         # Check for duckies/bunnies in the content
         for pattern in self.patterns:
-            if re.search(pattern, str(content), re.IGNORECASE):
-                print(f"⚠️ DuckiesBunniesGuardrail [{hook_name}]: MATCH FOUND! Pattern={pattern}")
-                print(f"⚠️ DuckiesBunniesGuardrail [{hook_name}]: BLOCKING - raising ModifyResponseException")
+            print(f"🔍 _check_content [{hook_name}]: Testing pattern: {pattern}")
+            match = re.search(pattern, str(content), re.IGNORECASE)
+            if match:
+                print(f"🚨🚨🚨 _check_content [{hook_name}]: MATCH FOUND! Pattern={pattern}")
+                print(f"🚨 _check_content [{hook_name}]: Match text: '{match.group()}'")
+                print(f"🚨 _check_content [{hook_name}]: BLOCKING - raising ModifyResponseException")
 
                 # Raise passthrough exception - LiteLLM will return 200 with this message
                 self.raise_passthrough_exception(
                     violation_message="⚠️ BLOCKED: The response contains mentions of duckies or bunnies. Discussions about cute animals may cause excessive happiness and distraction. Please ask a different question.",
                     request_data=data
                 )
-
-    async def async_moderation_hook(
-        self,
-        data: dict,
-        user_api_key_dict: UserAPIKeyAuth,
-        call_type: str,
-    ):
-        """
-        DURING_CALL hook - runs on each streaming chunk to check accumulated content
-
-        This is critical for streaming responses since post_call hooks don't execute
-        on streaming chunks in LiteLLM.
-
-        For each chunk, we check the accumulated message content and block if needed.
-        """
-        print(f"🔍 DuckiesBunniesGuardrail: async_moderation_hook CALLED! call_type={call_type}")
-
-        # Extract the streaming response if present
-        # For streaming, LiteLLM provides the accumulated message in data
-        messages = data.get("messages", [])
-        if not messages:
-            return data
-
-        # Check the last message (assistant's response being streamed)
-        last_message = messages[-1]
-        if last_message.get("role") == "assistant":
-            content = last_message.get("content", "")
-            self._check_content_for_blocked_words(content, data, "during_call/streaming")
-
-        return data
+            else:
+                print(f"✓ _check_content [{hook_name}]: No match for pattern: {pattern}")
 
     async def async_post_call_success_hook(
         self,
@@ -251,6 +250,10 @@ class DuckiesBunniesGuardrail(CustomGuardrail):
             ModifyResponseException: If blocked content is detected in response (returns 200)
         """
         print(f"🔍 DuckiesBunniesGuardrail: async_post_call_success_hook CALLED!")
+        print(f"🚨 DuckiesBunniesGuardrail: response type = {type(response)}")
+        print(f"🚨 DuckiesBunniesGuardrail: response keys = {response.keys() if isinstance(response, dict) else 'NOT A DICT'}")
+        print(f"🚨 DuckiesBunniesGuardrail: data.get('stream') = {data.get('stream')}")
+        print(f"🚨 DuckiesBunniesGuardrail: metadata.original_stream_request = {data.get('metadata', {}).get('original_stream_request', 'NOT SET')}")
 
         # Extract response content from the LLM response
         choices = response.get("choices", [])

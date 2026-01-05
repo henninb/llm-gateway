@@ -41,7 +41,9 @@ services:
       - DATA_DIR=/app/backend/data
       - ENABLE_OLLAMA_API=false
       - USER_AGENT=OpenWebUI
-      - EVALUATION_ARENA_MODELS=["perplexity-sonar-pro","nova-pro","llama3-2-3b"]
+      - ENABLE_EVALUATION_ARENA_MODELS=false
+      - EVALUATION_ARENA_MODELS=["nova-lite","nova-pro","llama3-2-3b"]
+      - ENABLE_PERSISTENT_CONFIG=true
     depends_on:
       - litellm
     networks:

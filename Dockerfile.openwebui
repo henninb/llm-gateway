@@ -12,11 +12,16 @@ RUN chown -R openwebui:openwebui /app
 
 # Configure Arena models for blind comparison
 # 1 Perplexity, 1 AWS, 1 Meta model
-ENV EVALUATION_ARENA_MODELS='["perplexity-sonar-pro","nova-pro","llama3-2-3b"]'
+# OpenWebUI's "Arena Mode" is just blind random model selection, not simultaneous multi-model comparison.
+ENV ENABLE_EVALUATION_ARENA_MODELS=false
+ENV EVALUATION_ARENA_MODELS='["nova-lite","nova-pro","llama3-2-3b"]'
+# Force environment variables to override database settings (admin UI changes won't persist)
+ENV ENABLE_PERSISTENT_CONFIG=true
 
 # Switch to non-root user
 USER openwebui
 
 # Health check - verify HTTP server is responding
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+# Longer start-period allows time for database migrations on first run
+HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
   CMD curl -f http://localhost:8080/ || exit 1

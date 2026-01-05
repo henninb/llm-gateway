@@ -59,7 +59,11 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 - **Unified API**: OpenAI-compatible endpoint for all models
 
 ### Features
-- **Arena Mode**: Blind model comparison (3 models: perplexity-sonar-pro, nova-pro, llama3-2-3b)
+- **Arena Mode**: Blind random model selection for unbiased testing (currently disabled)
+  - If enabled, would use 3 models: nova-lite, nova-pro, llama3-2-3b
+  - OpenWebUI's Arena Mode randomly selects ONE model per request (not simultaneous multi-model comparison)
+  - Models are hidden during conversation for unbiased evaluation
+  - Configured via `ENABLE_EVALUATION_ARENA_MODELS` and `EVALUATION_ARENA_MODELS` environment variables
 - **Custom Guardrails**: Extensible content filtering system with streaming support (example implementation included)
 - **Persistent Storage**: User data and conversations stored in EBS volumes
 - **Auto-Scaling**: EKS node group scales based on demand
@@ -452,12 +456,48 @@ Cost optimizations implemented:
 ### Access the UI
 Navigate to: https://openwebui.bhenning.com
 
-### Arena Mode (Blind Model Comparison)
-1. Click "Arena" in the sidebar
-2. Enter your prompt
-3. Two random models will respond
-4. Vote for the better response
-5. Models are revealed after voting
+### Arena Mode (Blind Random Model Selection)
+
+**Current Status**: Arena Mode is **currently disabled** (`ENABLE_EVALUATION_ARENA_MODELS=false`).
+
+OpenWebUI's Arena Mode provides **blind testing** by randomly selecting ONE model per request without revealing which model is responding. This is NOT a simultaneous multi-model comparison - instead, it's designed for unbiased evaluation across multiple conversations.
+
+**How it works:**
+1. Select "Arena Model" from the model dropdown in OpenWebUI
+2. Send your message - Arena Mode randomly picks one of the three configured models
+3. The model identity remains hidden during the conversation
+4. Use "Regenerate" to try different models (each regeneration randomly selects again)
+5. Models are hidden to prevent bias in your evaluation
+
+**Configured models** (if enabled):
+- `nova-lite` - AWS Bedrock Nova Lite (fastest, most cost-effective)
+- `nova-pro` - AWS Bedrock Nova Pro (balanced performance)
+- `llama3-2-3b` - Meta Llama 3.2 3B (open-source model)
+
+**Configuration:**
+
+Arena Mode is configured via environment variables in `terraform/eks/openwebui.tf`, `Dockerfile.openwebui`, and `docker-compose.yml`:
+
+```bash
+# Enable/Disable Arena Mode
+ENABLE_EVALUATION_ARENA_MODELS=false  # Currently disabled
+
+# Configure which models to use (if enabled)
+EVALUATION_ARENA_MODELS='["nova-lite","nova-pro","llama3-2-3b"]'
+
+# Force environment variables to take precedence over admin UI settings
+ENABLE_PERSISTENT_CONFIG=false
+```
+
+**Important Streaming Behavior:**
+
+OpenWebUI **always forces `stream=true`** for ANY model used in the Arena Mode configuration, regardless of the model's streaming settings in LiteLLM. This means:
+- Arena models will always use streaming responses
+- LiteLLM's `stream` configuration for these models is ignored
+- This is OpenWebUI's default behavior and cannot be overridden
+- Non-arena models respect LiteLLM's streaming configuration
+
+**Note**: With `ENABLE_PERSISTENT_CONFIG=false`, the environment variables override any Arena configuration made in the OpenWebUI admin panel. Changes in the UI will apply during the current session but won't persist after restart.
 
 ### Available Models
 - **AWS Bedrock Nova**: nova-micro, nova-lite, nova-pro
