@@ -43,8 +43,8 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 - **Non-Root Containers**: All containers run as unprivileged users (UID 1000)
 - **HTTPS/TLS**: ACM certificate with NLB SSL termination
 - **AWS Metadata Service Blocking**: Prevents SSRF attacks
-- **Rate Limiting**: Built-in request throttling
-- **Input Validation**: Parameter sanitization and validation
+- **Rate Limiting**: Built-in request throttling (ENABLE_RATE_LIMIT=true)
+- **Input Validation**: Parameter sanitization and validation (LITELLM_DROP_PARAMS=true)
 
 ### Cost Optimization
 - **SPOT Instances**: 50-90% cost savings on compute (t3.medium, t3a.medium, t2.medium)
@@ -482,6 +482,12 @@ Key variables in `terraform/eks/terraform.tfvars`:
 - ACM certificate management
 - NLB SSL termination
 - Automatic certificate renewal
+
+### Rate Limiting & Input Validation
+- **ENABLE_RATE_LIMIT=true**: Built-in request throttling per user
+- **LITELLM_DROP_PARAMS=true**: Parameter sanitization and validation
+- Maximum token limits enforced
+- Protection against API abuse and cost overruns
 
 ## Cost Breakdown
 
