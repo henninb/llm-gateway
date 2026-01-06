@@ -74,6 +74,7 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 
 ### Local Development
 - Docker and Docker Compose
+- Python 3 with pip3 (for generating Fernet keys)
 - AWS credentials with Bedrock access
 - Perplexity API key
 
@@ -81,6 +82,7 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 - Terraform >= 1.0
 - AWS CLI configured
 - kubectl
+- Python 3 with pip3 (for generating Fernet keys)
 - AWS account with permissions for:
   - EKS, VPC, EC2, IAM, ACM, Secrets Manager, ECR
 
@@ -92,8 +94,18 @@ git clone https://github.com/henninb/llm-gateway.git
 cd llm-gateway
 ```
 
-2. Create `.secrets` file:
+2. Install Python cryptography package (required for Fernet key generation):
 ```bash
+pip3 install cryptography
+```
+
+3. Create `.secrets` file:
+```bash
+# Generate secure random keys
+LITELLM_KEY=$(openssl rand -hex 32)
+WEBUI_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+
+# Create .secrets file
 cat > .secrets <<EOF
 # Required for AWS Bedrock access
 AWS_ACCESS_KEY_ID=your-access-key
@@ -101,8 +113,8 @@ AWS_SECRET_ACCESS_KEY=your-secret-key
 AWS_REGION=us-east-1
 
 # Required for LiteLLM and OpenWebUI
-LITELLM_MASTER_KEY=$(openssl rand -hex 32)
-WEBUI_SECRET_KEY=$(openssl rand -hex 32)
+LITELLM_MASTER_KEY=${LITELLM_KEY}
+WEBUI_SECRET_KEY=${WEBUI_KEY}
 
 # Required for Perplexity models
 PERPLEXITY_API_KEY=your-perplexity-key
@@ -115,12 +127,12 @@ CF_EMAIL=your-cloudflare-email
 EOF
 ```
 
-3. Start the services:
+4. Start the services:
 ```bash
 make local-deploy
 ```
 
-4. Access OpenWebUI at http://localhost:3000
+5. Access OpenWebUI at http://localhost:3000
 
 **Note**: Local and EKS deployments use the same architecture. Custom guardrails use LiteLLM's native passthrough mode (`on_flagged_action: "passthrough"`), which returns HTTP 200 with violation messages instead of HTTP 400 errors. This prevents chat context corruption in the UI while maintaining security controls.
 
@@ -157,6 +169,7 @@ make ecr-apply            # Create ECR repositories
 make ecr-destroy          # Destroy ECR repositories
 make ecr-login            # Login to AWS ECR
 make ecr-build-push       # Build and push Docker images to ECR
+make ecr-verify           # Verify ECR images match local builds
 
 # EKS Cluster Infrastructure
 make eks-cluster-init     # Initialize Terraform for EKS cluster
@@ -190,6 +203,9 @@ make ecr-apply
 make ecr-login
 make ecr-build-push
 
+# 2b. Verify images match (recommended)
+make ecr-verify
+
 # 3. Create EKS cluster
 make eks-cluster-init
 make eks-cluster-apply
@@ -213,10 +229,43 @@ make eks-secrets-populate
 
 This will load the secrets from your `.secrets` file and store them in AWS Secrets Manager under the secret `llm-gateway/api-keys`.
 
-### Step 4: Deploy Applications
+### Step 4: Request ACM Certificate
+
+Request an SSL/TLS certificate from AWS Certificate Manager for your domain:
 
 ```bash
-# Update terraform.tfvars with your ACM certificate ARN
+# Request certificate for your domain
+aws acm request-certificate \
+  --domain-name openwebui.bhenning.com \
+  --validation-method DNS \
+  --region us-east-1
+```
+
+After requesting, you'll need to add DNS validation records to your DNS provider:
+
+```bash
+# Get the validation CNAME records
+aws acm describe-certificate \
+  --certificate-arn arn:aws:acm:us-east-1:YOUR_ACCOUNT:certificate/YOUR_CERT_ID \
+  --region us-east-1
+```
+
+Add the CNAME validation record to your DNS provider (CloudFlare, Route53, etc.) and wait approximately 5-10 minutes for the certificate to be issued.
+
+Verify certificate is issued:
+```bash
+# List certificates and check status
+aws acm list-certificates --region us-east-1
+
+# Should show Status: "ISSUED"
+```
+
+Save the certificate ARN for the next step.
+
+### Step 5: Deploy Applications
+
+```bash
+# Update terraform.tfvars with your ACM certificate ARN (from Step 4)
 vim terraform/eks/terraform.tfvars
 
 # Apply EKS application deployment
@@ -224,7 +273,7 @@ make eks-init
 make eks-apply
 ```
 
-### Step 5: Configure DNS
+### Step 6: Configure DNS
 
 #### Automated Setup (Recommended)
 
@@ -277,7 +326,7 @@ dig +short openwebui.bhenning.com
 curl -I https://openwebui.bhenning.com
 ```
 
-### Step 6: Verify CloudFlare Security
+### Step 7: Verify CloudFlare Security
 
 The NLB is automatically configured with a security group that **ONLY allows CloudFlare IP ranges**, preventing direct access from non-CloudFlare sources.
 
@@ -436,20 +485,21 @@ Key variables in `terraform/eks/terraform.tfvars`:
 
 ## Cost Breakdown
 
-Estimated monthly costs (us-east-1):
+Estimated monthly costs (us-east-1, default configuration with 1 node):
 - EKS Control Plane: ~$73
-- EC2 SPOT Instances (2x t3.medium): ~$15-30
+- EC2 SPOT Instances (1x t3.medium): ~$8-15
 - NAT Gateway: ~$32
 - EBS Volumes: ~$8
 - Network Load Balancer: ~$16
 - Data Transfer: Variable
 
-**Total: ~$144-179/month**
+**Total: ~$137-144/month**
 
 Cost optimizations implemented:
 - Single NAT gateway vs multi-AZ (~$32/month savings)
-- SPOT instances vs on-demand (~$30-60/month savings)
+- SPOT instances vs on-demand (~$15-30/month savings per node)
 - ECR vs Docker Hub (avoids rate limits)
+- Default 1 node (can scale to 2+ for high availability)
 
 ## Usage
 
@@ -505,10 +555,17 @@ OpenWebUI **always forces `stream=true`** for ANY model used in the Arena Mode c
 - **Perplexity**: perplexity-sonar, perplexity-sonar-pro
 
 ### API Access
-You can also access LiteLLM directly via OpenAI-compatible API:
+
+**Important**: LiteLLM is not exposed to the internet for security reasons. To access the API, you must first set up port-forwarding:
 
 ```bash
-curl https://openwebui.bhenning.com/v1/chat/completions \
+# Terminal 1: Start port-forwarding
+make eks-port-forward
+# or for local development:
+make local-port-forward
+
+# Terminal 2: Access LiteLLM via OpenAI-compatible API
+curl http://localhost:4000/v1/chat/completions \
   -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -767,7 +824,7 @@ This command:
 
 **Requirements:**
 - `CF_API_KEY` and `CF_EMAIL` in `.secrets` file
-- See Step 5 in deployment guide for credential setup
+- See Step 6 in deployment guide for credential setup
 
 #### Manual DNS Check
 
@@ -930,24 +987,77 @@ kubectl exec -n llm-gateway -it $(kubectl get pod -n llm-gateway -l app=litellm 
 make ecr-login
 make ecr-build-push
 
+# Verify images match (recommended)
+make ecr-verify
+
 # Update deployments
 make eks-apply
 ```
 
+### Verify ECR Images
+
+After building and pushing images to ECR, you can verify that your remote images match your local builds by comparing image digests:
+
+```bash
+# Verify ECR images match local builds
+make ecr-verify
+```
+
+This command:
+1. Compares local Docker image digests with ECR remote digests
+2. Verifies both LiteLLM and OpenWebUI images
+3. Returns exit code 0 if all match, exit code 1 if any mismatch
+4. Useful for CI/CD pipelines and deployment verification
+
+**Example output:**
+```
+========================================
+  ECR Image Verification
+========================================
+Local LiteLLM digest:
+  sha256:8d2fd01af90747a15b4adc2e90dcd231faf483f3ac7aff1329e0ad16f9b1d321
+
+ECR LiteLLM digest:
+  sha256:8d2fd01af90747a15b4adc2e90dcd231faf483f3ac7aff1329e0ad16f9b1d321
+
+✓ LiteLLM images MATCH
+
+Local OpenWebUI digest:
+  sha256:f6c36a559ba2c2e0c9b37458c0820821b59677a1bfdc72297c7f492b406d92ec
+
+ECR OpenWebUI digest:
+  sha256:f6c36a559ba2c2e0c9b37458c0820821b59677a1bfdc72297c7f492b406d92ec
+
+✓ OpenWebUI images MATCH
+
+========================================
+  ✓ All images verified successfully!
+========================================
+```
+
 ### Rotate Secrets
 ```bash
+# Generate new keys
+NEW_LITELLM_KEY=$(openssl rand -hex 32)
+NEW_WEBUI_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+
 # Update secrets in AWS Secrets Manager (all keys stored in one secret)
 aws secretsmanager put-secret-value \
   --secret-id llm-gateway/api-keys \
-  --secret-string '{
-    "PERPLEXITY_API_KEY": "new-perplexity-key",
-    "LITELLM_MASTER_KEY": "new-litellm-key",
-    "WEBUI_SECRET_KEY": "new-webui-key"
-  }'
+  --secret-string "{
+    \"PERPLEXITY_API_KEY\": \"your-new-perplexity-key\",
+    \"LITELLM_MASTER_KEY\": \"${NEW_LITELLM_KEY}\",
+    \"WEBUI_SECRET_KEY\": \"${NEW_WEBUI_KEY}\"
+  }"
 
 # Restart pods to pick up new secrets
 kubectl rollout restart deployment litellm -n llm-gateway
 kubectl rollout restart deployment openwebui -n llm-gateway
+```
+
+**Note:** `WEBUI_SECRET_KEY` must be a valid Fernet key (base64-encoded 32-byte key). Generate with:
+```bash
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
 ### Scale Cluster

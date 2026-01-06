@@ -106,6 +106,45 @@ ecr-login: ## Login to AWS ECR
 ecr-build-push: ## Build and push Docker images to ECR
 	@./tools/build-and-push-ecr.sh latest
 
+ecr-verify: ## Verify ECR images match local builds
+	@echo "========================================"
+	@echo "  ECR Image Verification"
+	@echo "========================================"
+	@AWS_ACCOUNT_ID=$$(aws sts get-caller-identity --query Account --output text) && \
+	echo "Local LiteLLM digest:" && \
+	LOCAL_LITELLM=$$(docker inspect $$AWS_ACCOUNT_ID.dkr.ecr.$(AWS_REGION).amazonaws.com/llm-gateway/litellm:latest --format '{{index .RepoDigests 0}}' | cut -d'@' -f2) && \
+	echo "  $$LOCAL_LITELLM" && \
+	echo "" && \
+	echo "ECR LiteLLM digest:" && \
+	ECR_LITELLM=$$(aws ecr describe-images --repository-name llm-gateway/litellm --image-ids imageTag=latest --region $(AWS_REGION) --query 'imageDetails[0].imageDigest' --output text) && \
+	echo "  $$ECR_LITELLM" && \
+	echo "" && \
+	if [ "$$LOCAL_LITELLM" = "$$ECR_LITELLM" ]; then \
+		echo "✓ LiteLLM images MATCH"; \
+	else \
+		echo "✗ LiteLLM images DO NOT MATCH"; \
+		exit 1; \
+	fi && \
+	echo "" && \
+	echo "Local OpenWebUI digest:" && \
+	LOCAL_OPENWEBUI=$$(docker inspect $$AWS_ACCOUNT_ID.dkr.ecr.$(AWS_REGION).amazonaws.com/llm-gateway/openwebui:latest --format '{{index .RepoDigests 0}}' | cut -d'@' -f2) && \
+	echo "  $$LOCAL_OPENWEBUI" && \
+	echo "" && \
+	echo "ECR OpenWebUI digest:" && \
+	ECR_OPENWEBUI=$$(aws ecr describe-images --repository-name llm-gateway/openwebui --image-ids imageTag=latest --region $(AWS_REGION) --query 'imageDetails[0].imageDigest' --output text) && \
+	echo "  $$ECR_OPENWEBUI" && \
+	echo "" && \
+	if [ "$$LOCAL_OPENWEBUI" = "$$ECR_OPENWEBUI" ]; then \
+		echo "✓ OpenWebUI images MATCH"; \
+	else \
+		echo "✗ OpenWebUI images DO NOT MATCH"; \
+		exit 1; \
+	fi && \
+	echo "" && \
+	echo "========================================" && \
+	echo "  ✓ All images verified successfully!" && \
+	echo "========================================"
+
 # EKS Cluster Infrastructure Targets
 eks-cluster-init: ## Initialize Terraform for EKS cluster creation
 	@cd terraform/eks-cluster && terraform init
