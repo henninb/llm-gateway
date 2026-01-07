@@ -17,6 +17,8 @@ ENV ENABLE_EVALUATION_ARENA_MODELS=false
 ENV EVALUATION_ARENA_MODELS='["nova-lite","nova-pro","llama3-2-3b"]'
 # Force environment variables to override database settings (admin UI changes won't persist)
 ENV ENABLE_PERSISTENT_CONFIG=true
+# Bypass model access control so all users (not just admins) can see all models
+ENV BYPASS_MODEL_ACCESS_CONTROL=true
 
 # Switch to non-root user
 USER openwebui

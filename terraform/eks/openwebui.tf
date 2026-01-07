@@ -131,6 +131,11 @@ resource "kubernetes_deployment" "openwebui" {
             value = "false"
           }
 
+          env {
+            name  = "BYPASS_MODEL_ACCESS_CONTROL"
+            value = "true"
+          }
+
           resources {
             requests = {
               cpu    = var.openwebui_cpu_request

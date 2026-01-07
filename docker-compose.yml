@@ -43,7 +43,8 @@ services:
       - USER_AGENT=OpenWebUI
       - ENABLE_EVALUATION_ARENA_MODELS=false
       - EVALUATION_ARENA_MODELS=["nova-lite","nova-pro","llama3-2-3b"]
-      - ENABLE_PERSISTENT_CONFIG=true
+      - ENABLE_PERSISTENT_CONFIG=false
+      - BYPASS_MODEL_ACCESS_CONTROL=true
     depends_on:
       - litellm
     networks:
