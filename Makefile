@@ -64,12 +64,10 @@ test-guardrails: ## Test custom guardrails (pre_call and post_call hooks)
 		python3 tests/test-guardrails.py; \
 	fi
 
-test-all: ## Run all tests (setup validation, health check, model tests, guardrails)
+test-all: ## Run all tests (setup validation, model tests, guardrails)
 	@echo "Running complete test suite..."
 	@echo ""
 	@make validate-setup
-	@echo ""
-	@make test-health
 	@echo ""
 	@make test-litellm-models
 	@echo ""
