@@ -59,18 +59,18 @@ resource "aws_ecr_repository" "openwebui" {
   }
 }
 
-# Lifecycle policy to keep only the last 10 images
+# Lifecycle policy to keep only the latest image
 resource "aws_ecr_lifecycle_policy" "litellm" {
   repository = aws_ecr_repository.litellm.name
 
   policy = jsonencode({
     rules = [{
       rulePriority = 1
-      description  = "Keep last 10 images"
+      description  = "Keep only latest image"
       selection = {
         tagStatus     = "any"
         countType     = "imageCountMoreThan"
-        countNumber   = 10
+        countNumber   = 1
       }
       action = {
         type = "expire"
@@ -85,11 +85,11 @@ resource "aws_ecr_lifecycle_policy" "openwebui" {
   policy = jsonencode({
     rules = [{
       rulePriority = 1
-      description  = "Keep last 10 images"
+      description  = "Keep only latest image"
       selection = {
         tagStatus     = "any"
         countType     = "imageCountMoreThan"
-        countNumber   = 10
+        countNumber   = 1
       }
       action = {
         type = "expire"
