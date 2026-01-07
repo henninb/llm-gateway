@@ -522,7 +522,15 @@ Edit `config/litellm_config.yaml` to:
 
 The project includes a **demonstration** of custom content filtering using LiteLLM's guardrails system. This example blocks specific content patterns in both user inputs and model outputs while preventing chat context corruption.
 
-**Example guardrail** (`config/custom_guardrail.py`):
+**Example guardrail: "Duckies and Bunnies Detector"**
+
+The included example (`config/custom_guardrail.py` - `DuckiesBunniesGuardrail` class) demonstrates a playful but fully functional content filter that:
+- **Blocks mentions of duckies, bunnies, ducks, and rabbits** in both user input and LLM output
+- Uses regex patterns: `\bduck|ducky|duckies\b` and `\bbunny|bunnies\b`
+- Returns friendly error message: "⚠️ BLOCKED: Your message mentions duckies or bunnies. Discussions about cute animals may cause excessive happiness and distraction."
+- Demonstrates enterprise-grade filtering patterns that can be adapted for real use cases (PII, prompt injection, compliance)
+
+**Key features** (`config/custom_guardrail.py`):
 - Blocks user messages containing specific keywords/patterns (pre_call hook)
 - Blocks LLM responses containing prohibited content (post_call hook)
 - Sanitizes conversation history to prevent bypass attempts
@@ -547,21 +555,25 @@ The project includes a **demonstration** of custom content filtering using LiteL
 **Configure in** `config/litellm_config.yaml`:
 ```yaml
 guardrails:
-  - guardrail_name: "custom-content-filter"
+  - guardrail_name: "duckies-bunnies-detector"  # Current example implementation
     litellm_params:
-      guardrail: custom_guardrail.YourGuardrailClass
+      guardrail: custom_guardrail.DuckiesBunniesGuardrail
       mode: ["pre_call", "post_call"]  # Filter both input and output
       default_on: true
       on_flagged_action: "passthrough"  # Return 200 with error message
 ```
 
-**Customize the example:**
+**Customize the example for your use case:**
 1. Edit `config/custom_guardrail.py`
-2. Modify the `patterns` list with your content rules
-3. Adjust blocking logic in `async_pre_call_hook()` and `async_post_call_success_hook()`
-4. Redeploy: `make local-deploy` or `make eks-apply`
+2. Rename `DuckiesBunniesGuardrail` to your use case (e.g., `PIIDetector`, `PromptInjectionFilter`)
+3. Modify the `patterns` list with your content rules (PII, profanity, company secrets, etc.)
+4. Adjust blocking logic in `async_pre_call_hook()` and `async_post_call_success_hook()`
+5. Update guardrail name and class in `config/litellm_config.yaml`
+6. Redeploy: `make local-deploy` or `make eks-apply`
 
-**Test guardrails:**
+**Note:** The "duckies and bunnies" example is intentionally playful to demonstrate the filtering system without blocking real content during testing. Replace with production-appropriate rules for your deployment.
+
+**Test the duckies and bunnies guardrail:**
 ```bash
 # Run comprehensive guardrail test suite
 make test-guardrails
@@ -571,16 +583,32 @@ python3 tests/test-guardrails.py
 
 # Tests verify (6 tests per model, 12 total):
 # PRE_CALL TESTS:
-# - Direct blocking of prohibited user input
-# - Bypass prevention via history sanitization
-# - Normal conversations work unaffected
+# - Direct blocking of "duckies" and "bunnies" in user input
+# - Bypass prevention via history sanitization (removes prior blocked messages)
+# - Normal conversations work unaffected (no false positives)
 # POST_CALL TESTS:
-# - LLM output filtering (non-streaming)
-# - LLM output filtering (streaming mode)
-# - Indirect bypass prevention ("what is bird that quacks?")
+# - LLM output filtering (blocks responses containing "duck", "bunny", etc.)
+# - LLM output filtering (streaming mode with stream=false forcing)
+# - Indirect bypass prevention (blocks response to "what is bird that quacks?")
 ```
 
-This implementation demonstrates enterprise-grade content filtering that can be adapted for:
+**Example test output:**
+```
+PRE_CALL TESTS (Input Filtering)
+✅ PASS: Direct mention blocked (200 OK with BLOCKED message)
+✅ PASS: Bypass prevented (history sanitized)
+✅ PASS: Normal conversation works
+
+POST_CALL TESTS (Output Filtering)
+✅ PASS: LLM output blocked (post_call hook working)
+✅ PASS: LLM output blocked in streaming mode (stream=false forcing)
+✅ PASS: Indirect bypass blocked (post_call caught "duck" in response)
+
+Model 'llama3-2-3b' Results: 6/6 tests passed
+🎉 All tests passed! (12/12)
+```
+
+This example implementation demonstrates enterprise-grade content filtering patterns that can be adapted for:
 - PII detection and redaction
 - Prompt injection prevention
 - Company policy enforcement
