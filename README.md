@@ -101,11 +101,6 @@ llm-gateway/
 - **`BUG-LITELLM-STREAMING.md`**: LiteLLM streaming bug details and patch explanation
 - **`BUG-FORMAT-MISMATCH.md`**: JSON dict vs SSE response format differences
 
-**Legacy/Reference:**
-- **`proxy.py`**: Legacy proxy solution for guardrail error handling (superseded by LiteLLM passthrough mode)
-
-**Note:** The project now uses LiteLLM's native `on_flagged_action: "passthrough"` mode for guardrail error handling, making the legacy proxy solution unnecessary. The proxy.py file is kept for reference.
-
 ## Architecture
 
 ### Production (AWS EKS)
