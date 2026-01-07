@@ -36,8 +36,8 @@ if [ -z "$LITELLM_MASTER_KEY" ]; then
 fi
 
 # Extract host and port from endpoint
-ENDPOINT_HOST=$(echo "$ENDPOINT" | sed -E 's|^https?://([^:/]+).*|\1|')
-ENDPOINT_PORT=$(echo "$ENDPOINT" | sed -E 's|^https?://[^:]+:([0-9]+).*|\1|')
+ENDPOINT_HOST="$(echo "$ENDPOINT" | sed -E 's|^https?://([^:/]+).*|\1|')"
+ENDPOINT_PORT="$(echo "$ENDPOINT" | sed -E 's|^https?://[^:]+:([0-9]+).*|\1|')"
 
 # If port not found in URL, assume default port based on protocol
 if [ "$ENDPOINT_PORT" = "$ENDPOINT" ]; then
@@ -62,7 +62,7 @@ while [ $retry_count -lt $MAX_RETRIES ]; do
       echo -e "${GREEN}✓ Port $ENDPOINT_PORT is open${NC}"
 
       # Try to hit health endpoint
-      health_response=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$ENDPOINT/health" 2>/dev/null)
+      health_response="$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$ENDPOINT/health" 2>/dev/null)"
       if [ "$health_response" = "200" ] || [ "$health_response" = "404" ]; then
         echo -e "${GREEN}✓ Service is responding${NC}"
         break
@@ -115,14 +115,14 @@ test_model() {
 
   echo -n "Testing $model_name... "
 
-  response=$(curl -s "$ENDPOINT/v1/chat/completions" \
+  response="$(curl -s "$ENDPOINT/v1/chat/completions" \
     -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
-    -d "{\"model\":\"$model_name\",\"messages\":[{\"role\":\"user\",\"content\":\"$test_prompt\"}],\"max_tokens\":50}")
+    -d "{\"model\":\"$model_name\",\"messages\":[{\"role\":\"user\",\"content\":\"$test_prompt\"}],\"max_tokens\":50}")"
 
   # Check if response contains an error
   if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
-    error_msg=$(echo "$response" | jq -r '.error.message // .error')
+    error_msg="$(echo "$response" | jq -r '.error.message // .error')"
 
     # Check for specific Anthropic use case error
     if echo "$error_msg" | grep -q "use case details have not been submitted"; then
@@ -138,7 +138,7 @@ test_model() {
 
   # Check if response has content
   if echo "$response" | jq -e '.choices[0].message.content' > /dev/null 2>&1; then
-    content=$(echo "$response" | jq -r '.choices[0].message.content')
+    content="$(echo "$response" | jq -r '.choices[0].message.content')"
     echo -e "${GREEN}OK${NC}"
     echo "  Response: ${content:0:60}..."
     return 0
@@ -217,7 +217,7 @@ echo ""
 # Exit with failure if any tests failed
 if [ $FAILED_TESTS -gt 0 ]; then
   echo -e "${RED}Some tests failed. See details above.${NC}"
-  exit 0
+  exit 1
 else
   echo -e "${GREEN}All tests passed!${NC}"
   exit 0

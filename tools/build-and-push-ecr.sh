@@ -7,7 +7,7 @@ set -e
 # Configuration
 AWS_REGION="${AWS_REGION:-us-east-1}"
 IMAGE_TAG="${1:-latest}"
-AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 
 # Colors for output
 RED='\033[0;31m'

@@ -23,7 +23,7 @@ check_command() {
   display_name=${3:-$cmd}
 
   if command -v "$cmd" >/dev/null 2>&1; then
-    version_output=$($cmd $version_flag 2>&1 | head -n1)
+    version_output="$($cmd $version_flag 2>&1 | head -n1)"
     printf "${GREEN}✓${NC} %s is installed (%s)\n" "$display_name" "$version_output"
     return 0
   else
@@ -51,7 +51,7 @@ check_command "jq" "--version" "jq" || true
 
 # Special handling for curl - extract just version number
 if command -v "curl" >/dev/null 2>&1; then
-  version_output=$(curl --version 2>&1 | head -n1 | awk '{print $1, $2}')
+  version_output="$(curl --version 2>&1 | head -n1 | awk '{print $1, $2}')"
   printf "${GREEN}✓${NC} %s is installed (%s)\n" "curl" "$version_output"
 else
   printf "${RED}✗${NC} %s is NOT installed\n" "curl"
@@ -73,7 +73,7 @@ if command -v "aws" >/dev/null 2>&1; then
 
   # Check if AWS credentials are configured
   if aws sts get-caller-identity >/dev/null 2>&1; then
-    aws_identity=$(aws sts get-caller-identity --query 'Arn' --output text 2>&1)
+    aws_identity="$(aws sts get-caller-identity --query 'Arn' --output text 2>&1)"
     printf "${GREEN}✓${NC} AWS credentials are valid (%s)\n" "$aws_identity"
   else
     printf "${RED}✗${NC} AWS credentials not configured or invalid\n"

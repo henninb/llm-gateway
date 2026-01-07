@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: litellm
     restart: unless-stopped
-    # user: "1000:1000"  # Run as non-root user (matches Dockerfile USER)
+    user: "1000:1000"  # Run as non-root user (matches Dockerfile USER)
     # ports:
     #   - "4000:4000"  # Port not exposed to host - only accessible within Docker network
     environment:
@@ -43,7 +43,7 @@ services:
       - USER_AGENT=OpenWebUI
       - ENABLE_EVALUATION_ARENA_MODELS=false
       - EVALUATION_ARENA_MODELS=["nova-lite","nova-pro","llama3-2-3b"]
-      - ENABLE_PERSISTENT_CONFIG=false
+      - ENABLE_PERSISTENT_CONFIG=true
       - BYPASS_MODEL_ACCESS_CONTROL=true
     depends_on:
       - litellm

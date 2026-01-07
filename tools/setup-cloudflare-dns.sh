@@ -13,8 +13,8 @@ NC='\033[0m' # No Color
 
 # Configuration
 DOMAIN="${1:-openwebui.bhenning.com}"
-ZONE_NAME=$(echo "$DOMAIN" | rev | cut -d. -f1-2 | rev)  # Extract bhenning.com from openwebui.bhenning.com
-RECORD_NAME=$(echo "$DOMAIN" | cut -d. -f1)  # Extract openwebui from openwebui.bhenning.com
+ZONE_NAME="$(echo "$DOMAIN" | rev | cut -d. -f1-2 | rev)"  # Extract bhenning.com from openwebui.bhenning.com
+RECORD_NAME="$(echo "$DOMAIN" | cut -d. -f1)"  # Extract openwebui from openwebui.bhenning.com
 
 printf "%b=== CloudFlare DNS Setup for %s ===%b\n" "$BLUE" "$DOMAIN" "$NC"
 printf "\n"
@@ -67,11 +67,11 @@ printf "\n"
 printf "1. Getting LoadBalancer hostname from Kubernetes...\n"
 
 # Try to get from Ingress first (ALB)
-LB_HOSTNAME=$(kubectl get ingress openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+LB_HOSTNAME="$(kubectl get ingress openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
 
 # If not found in Ingress, try Service (NLB)
 if [ -z "$LB_HOSTNAME" ]; then
-  LB_HOSTNAME=$(kubectl get svc openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+  LB_HOSTNAME="$(kubectl get svc openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
 fi
 
 if [ -z "$LB_HOSTNAME" ]; then
@@ -98,7 +98,7 @@ else
     -H "Content-Type: application/json")
 fi
 
-ZONE_ID=$(echo "$ZONE_RESPONSE" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
+ZONE_ID="$(echo "$ZONE_RESPONSE" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)"
 
 if [ -z "$ZONE_ID" ]; then
   printf "  %b✗ Error: Could not find zone %s%b\n" "$RED" "$ZONE_NAME" "$NC"
@@ -122,7 +122,7 @@ else
     -H "Content-Type: application/json")
 fi
 
-SSL_MODE=$(echo "$SSL_RESPONSE" | grep -o '"value":"[^"]*' | head -1 | cut -d'"' -f4)
+SSL_MODE="$(echo "$SSL_RESPONSE" | grep -o '"value":"[^"]*' | head -1 | cut -d'"' -f4)"
 
 if [ -z "$SSL_MODE" ]; then
   printf "  %b⚠ Could not retrieve SSL/TLS mode%b\n" "$YELLOW" "$NC"
@@ -167,9 +167,9 @@ else
     -H "Content-Type: application/json")
 fi
 
-RECORD_ID=$(echo "$RECORD_RESPONSE" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
-EXISTING_CONTENT=$(echo "$RECORD_RESPONSE" | grep -o '"content":"[^"]*' | head -1 | cut -d'"' -f4)
-EXISTING_PROXIED=$(echo "$RECORD_RESPONSE" | grep -o '"proxied":[^,}]*' | head -1 | cut -d':' -f2)
+RECORD_ID="$(echo "$RECORD_RESPONSE" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)"
+EXISTING_CONTENT="$(echo "$RECORD_RESPONSE" | grep -o '"content":"[^"]*' | head -1 | cut -d'"' -f4)"
+EXISTING_PROXIED="$(echo "$RECORD_RESPONSE" | grep -o '"proxied":[^,}]*' | head -1 | cut -d':' -f2)"
 
 if [ -n "$RECORD_ID" ]; then
   printf "  %b✓ DNS record exists%b\n" "$GREEN" "$NC"
@@ -254,7 +254,7 @@ else
 
   if echo "$CREATE_RESPONSE" | grep -q '"success":true'; then
     printf "  %b✓ DNS record created successfully%b\n" "$GREEN" "$NC"
-    NEW_RECORD_ID=$(echo "$CREATE_RESPONSE" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
+    NEW_RECORD_ID="$(echo "$CREATE_RESPONSE" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)"
     printf "  Record ID: %s\n" "$NEW_RECORD_ID"
   else
     printf "  %b✗ Failed to create DNS record%b\n" "$RED" "$NC"
@@ -269,7 +269,7 @@ printf "\n"
 printf "6. Verifying DNS resolution...\n"
 
 # Check local DNS
-DNS_RESULT=$(dig +short "$DOMAIN" 2>/dev/null | tail -1 || true)
+DNS_RESULT="$(dig +short "$DOMAIN" 2>/dev/null | tail -1 || true)"
 
 if [ -n "$DNS_RESULT" ]; then
   printf "  Local DNS: %b✓ Resolves to: %s%b\n" "$GREEN" "$DNS_RESULT" "$NC"
@@ -277,7 +277,7 @@ else
   printf "  Local DNS: %b⚠ Not yet propagated%b\n" "$YELLOW" "$NC"
 
   # Check CloudFlare DNS directly
-  CF_DNS_RESULT=$(dig @1.1.1.1 +short "$DOMAIN" 2>/dev/null | tail -1 || true)
+  CF_DNS_RESULT="$(dig @1.1.1.1 +short "$DOMAIN" 2>/dev/null | tail -1 || true)"
 
   if [ -n "$CF_DNS_RESULT" ]; then
     printf "  CloudFlare DNS: %b✓ Resolves to: %s%b\n" "$GREEN" "$CF_DNS_RESULT" "$NC"
@@ -299,7 +299,7 @@ printf "\n"
 
 # Step 7: Check local DNS cache
 printf "7. Verifying local DNS cache...\n"
-CNAME_RESULT=$(dig +short CNAME "$DOMAIN" 2>/dev/null || true)
+CNAME_RESULT="$(dig +short CNAME "$DOMAIN" 2>/dev/null || true)"
 
 if [ -n "$CNAME_RESULT" ]; then
   printf "  Local cache CNAME: %s -> %s\n" "$DOMAIN" "$CNAME_RESULT"
@@ -329,12 +329,12 @@ printf "\n"
 printf "8. Testing HTTPS connectivity...\n"
 
 # Get IP to test with
-TEST_IP=$(dig @1.1.1.1 +short "$DOMAIN" 2>/dev/null | tail -1 || true)
+TEST_IP="$(dig @1.1.1.1 +short "$DOMAIN" 2>/dev/null | tail -1 || true)"
 
 if [ -n "$TEST_IP" ]; then
   # Test with explicit IP resolution (bypasses DNS cache)
-  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
-    --resolve "$DOMAIN:443:$TEST_IP" "https://$DOMAIN" 2>/dev/null || echo "000")
+  HTTP_CODE="$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+    --resolve "$DOMAIN:443:$TEST_IP" "https://$DOMAIN" 2>/dev/null || echo "000")"
 
   if echo "$HTTP_CODE" | grep -q "^[23]"; then
     printf "  %b✓ HTTPS endpoint is reachable (HTTP %s)%b\n" "$GREEN" "$HTTP_CODE" "$NC"
