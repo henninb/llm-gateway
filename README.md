@@ -79,7 +79,7 @@ llm-gateway/
 ├── .secrets.example             # Template for required secrets
 ├── BUG-LITELLM-STREAMING.md    # Documentation of LiteLLM streaming bug and patch
 ├── BUG-FORMAT-MISMATCH.md      # Explanation of JSON vs SSE response formats
-├── CLOUDFLARE-CERT.md          # CloudFlare Origin Certificate setup guide
+├── CLOUDFLARE-ORIGIN-CERT.md          # CloudFlare Origin Certificate setup guide
 └── README.md                    # This file (project documentation)
 ```
 
@@ -97,7 +97,7 @@ llm-gateway/
 
 **Documentation:**
 - **`README.md`**: This file - comprehensive project documentation
-- **`CLOUDFLARE-CERT.md`**: Guide for CloudFlare Origin Certificate setup and proxy mode
+- **`CLOUDFLARE-ORIGIN-CERT.md`**: Guide for CloudFlare Origin Certificate setup and proxy mode
 - **`BUG-LITELLM-STREAMING.md`**: LiteLLM streaming bug details and patch explanation
 - **`BUG-FORMAT-MISMATCH.md`**: JSON dict vs SSE response format differences
 
@@ -136,7 +136,7 @@ llm-gateway/
 - **Zero-Trust Networking**: Kubernetes NetworkPolicies enforce pod-to-pod isolation
 - **Flexible Access Control**: Choose between ISP-based restrictions or CloudFlare proxy mode
   - **ISP-Based (Default)**: ALB security groups restrict HTTPS to authorized IP ranges (FREE)
-  - **CloudFlare Proxy (Optional)**: DDoS protection, WAF, bot detection, and edge caching (see `CLOUDFLARE-CERT.md`)
+  - **CloudFlare Proxy (Optional)**: DDoS protection, WAF, bot detection, and edge caching (see `CLOUDFLARE-ORIGIN-CERT.md`)
 - **On-Demand IP Allowlisting**: Add temporary IP/CIDR access with `make eks-allow-ip`
 - **IRSA (IAM Roles for Service Accounts)**: AWS service authentication without static credentials
 - **Non-Root Containers**: All containers run as unprivileged users (UID 1000)
@@ -168,7 +168,7 @@ llm-gateway/
 - **Auto-Scaling**: EKS node group scales based on demand
 - **Health Checks**: Kubernetes liveness/readiness probes
 - **Automated DNS Management**: CloudFlare API integration for DNS-only setup
-- **CloudFlare Proxy Ready**: Origin certificate workflow documented in `CLOUDFLARE-CERT.md`
+- **CloudFlare Proxy Ready**: Origin certificate workflow documented in `CLOUDFLARE-ORIGIN-CERT.md`
 
 ## Prerequisites
 
@@ -460,7 +460,7 @@ kubectl get ingress openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.
    - Name: openwebui (or your subdomain)
    - Target: [ALB DNS from step 1]
    - Proxy status: Proxied (orange cloud icon - `proxied: true`)
-   - **Note:** Requires CloudFlare Origin Certificate - see CLOUDFLARE-CERT.md
+   - **Note:** Requires CloudFlare Origin Certificate - see CLOUDFLARE-ORIGIN-CERT.md
 
 3. Verify configuration:
 ```bash
@@ -522,13 +522,13 @@ If you need to switch back to direct ALB access without CloudFlare protection:
 
 3. **Optional:** Switch back to AWS-issued ACM certificate (not required but cleaner)
 
-See `CLOUDFLARE-CERT.md` for complete setup documentation if you need to set this up from scratch.
+See `CLOUDFLARE-ORIGIN-CERT.md` for complete setup documentation if you need to set this up from scratch.
 
 **Important Notes:**
 - CloudFlare proxy requires CloudFlare Origin Certificates (ALB hostname doesn't match domain)
 - Must update **both** ALB and worker node security groups or health checks will fail (HTTP 522 errors)
 - Allow 30-60 seconds for CloudFlare edge propagation when toggling proxy mode
-- See `CLOUDFLARE-CERT.md` troubleshooting section for common issues
+- See `CLOUDFLARE-ORIGIN-CERT.md` troubleshooting section for common issues
 
 ## Configuration
 
