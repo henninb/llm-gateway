@@ -91,6 +91,7 @@ llm-gateway/
 **Key Files:**
 - **`.secrets`**: Your local secrets file (create from `.secrets.example`, never commit to git)
 - **`.secrets.example`**: Template for required secrets with instructions
+- **`.gitignore`**: Protects sensitive files including `.secrets`, `*.pem` (CloudFlare certificates), and Terraform state
 - **`Makefile`**: Comprehensive automation for all operations (run `make help` to see all commands)
 - **`requirements.txt`**: Python dependencies for LiteLLM patches
 - **`requirements-proxy.txt`**: Dependencies for legacy proxy solution
@@ -140,11 +141,13 @@ llm-gateway/
 
 ### Security
 - **Zero-Trust Networking**: Kubernetes NetworkPolicies enforce pod-to-pod isolation
-- **ISP-Based Access Control**: ALB security groups restrict HTTPS access to authorized IP ranges (FREE)
+- **Flexible Access Control**: Choose between ISP-based restrictions or CloudFlare proxy mode
+  - **ISP-Based (Default)**: ALB security groups restrict HTTPS to authorized IP ranges (FREE)
+  - **CloudFlare Proxy (Optional)**: DDoS protection, WAF, bot detection, and edge caching (see `CLOUDFLARE-CERT.md`)
 - **On-Demand IP Allowlisting**: Add temporary IP/CIDR access with `make eks-allow-ip`
 - **IRSA (IAM Roles for Service Accounts)**: AWS service authentication without static credentials
 - **Non-Root Containers**: All containers run as unprivileged users (UID 1000)
-- **HTTPS/TLS**: ACM certificate with ALB SSL termination
+- **HTTPS/TLS**: ACM certificate with ALB SSL termination (standard or CloudFlare Origin Certificate)
 - **AWS Metadata Service Blocking**: Prevents SSRF attacks
 - **Rate Limiting**: Built-in request throttling (ENABLE_RATE_LIMIT=true)
 - **Input Validation**: Parameter sanitization and validation (LITELLM_DROP_PARAMS=true)
@@ -291,10 +294,12 @@ make eks-secrets-populate # Populate AWS Secrets Manager with API keys
 make eks-port-forward     # Forward LiteLLM from EKS to localhost:4000
 make eks-verify-cloudflare-dns # Auto-setup/verify CloudFlare DNS in DNS-only mode (recommended)
 
-# EKS Security Group Management
-make eks-allow-ip IP=1.2.3.4/32 DESC="Office"  # Add IP/CIDR to ALB security group
-make eks-revoke-ip IP=1.2.3.4/32               # Remove IP/CIDR from ALB security group
-make eks-list-ips                              # List all allowed IPs in ALB security group
+# EKS Security Group Management (ISP and CloudFlare)
+make eks-list-ips                                             # List all IPs in both security groups
+make eks-allow-ip IP=1.2.3.4/32 SG=isp DESC="Office"         # Add IP to ISP security group
+make eks-allow-ip IP=1.2.3.4/32 SG=cloudflare DESC="Testing" # Add IP to CloudFlare security group
+make eks-revoke-ip IP=1.2.3.4/32 SG=isp                      # Remove IP from ISP security group
+make eks-revoke-ip IP=1.2.3.4/32 SG=cloudflare               # Remove IP from CloudFlare security group
 ```
 
 ## AWS EKS Deployment
@@ -494,19 +499,32 @@ Currently, CloudFlare is configured in **DNS-only mode** (`proxied: false`), whi
 
 **To enable CloudFlare proxy mode for additional security:**
 
-See `CLOUDFLARE-CERT.md` for instructions on:
-1. Generating CloudFlare Origin Certificates
+See `CLOUDFLARE-CERT.md` for complete step-by-step instructions on:
+1. Generating CloudFlare Origin Certificates (15-year validity)
 2. Importing certificates to AWS ACM
-3. Enabling `proxied: true` for CloudFlare protection
+3. **⚠️ CRITICAL:** Updating BOTH security groups (ALB + worker node)
+4. Configuring CloudFlare SSL/TLS mode to "Full (strict)"
+5. Enabling `proxied: true` for CloudFlare protection
+6. Verifying the setup works
+
+**Required Changes:**
+- **Certificate:** Switch from AWS-issued ACM certificate to CloudFlare Origin Certificate
+- **Security Groups:** Update both `openwebui.tf` (ALB) and `isp-security-group.tf` (worker nodes) to use CloudFlare IPs
+- **CloudFlare Settings:** Enable proxy mode and set SSL/TLS to "Full (strict)"
 
 **CloudFlare proxy mode benefits:**
 - ✅ DDoS protection and WAF
-- ✅ Edge caching for static assets
+- ✅ Edge caching for static assets (300+ data centers)
 - ✅ Bot detection and rate limiting
 - ✅ Geo-restriction capabilities
 - ✅ Hides your origin ALB hostname
+- ✅ HTTP/3 and Brotli compression support
 
-**Note:** CloudFlare proxy requires CloudFlare Origin Certificates due to ALB hostname mismatch. See documentation for details.
+**Important Notes:**
+- CloudFlare proxy requires CloudFlare Origin Certificates (ALB hostname mismatch with standard certificates)
+- Must update **both** ALB and worker node security groups or health checks will fail (HTTP 522 errors)
+- Allow 30-60 seconds for CloudFlare edge propagation after enabling proxy mode
+- See `CLOUDFLARE-CERT.md` troubleshooting section for common issues
 
 ## Configuration
 
@@ -1045,30 +1063,53 @@ curl -I https://openwebui.bhenning.com
 
 ### IP Allowlisting (On-Demand Access Control)
 
-The project includes on-demand IP allowlisting for temporary access to the application. This is useful for:
+The project includes on-demand IP allowlisting for temporary access to the application with support for **both ISP and CloudFlare security groups**. This is useful for:
 - Granting access to specific users or offices
 - Allowing access from dynamic IPs (home networks, mobile devices)
 - Temporary access for contractors or partners
 - Testing from different networks
 
+**Choose the right security group:**
+- **ISP** (`SG=isp`): Use when CloudFlare proxy is DISABLED (direct ALB access)
+- **CloudFlare** (`SG=cloudflare`): Use when CloudFlare proxy is ENABLED (currently active)
+
+**List all security group rules:**
+```bash
+make eks-list-ips
+# Shows both ISP and CloudFlare security groups with current rules
+```
+
 **Add an IP/CIDR to the allowlist:**
 ```bash
-# Add a single IP
-make eks-allow-ip IP=1.2.3.4 DESC="John's home office"
+# Add to ISP security group (for direct ALB access)
+make eks-allow-ip IP=1.2.3.4 SG=isp DESC="John's home office"
+
+# Add to CloudFlare security group (for CloudFlare proxy mode)
+make eks-allow-ip IP=1.2.3.4 SG=cloudflare DESC="Testing from home"
 
 # Add a CIDR range
-make eks-allow-ip IP=192.168.1.0/24 DESC="Office network"
+make eks-allow-ip IP=192.168.1.0/24 SG=isp DESC="Office network"
 
 # IP without /32 will be automatically converted to /32
-make eks-allow-ip IP=1.2.3.4 DESC="Alice laptop"  # Becomes 1.2.3.4/32
+make eks-allow-ip IP=1.2.3.4 SG=isp DESC="Alice laptop"  # Becomes 1.2.3.4/32
+
+# SG parameter defaults to 'isp' if not specified
+make eks-allow-ip IP=1.2.3.4 DESC="Defaults to ISP"
 ```
 
 **Remove an IP/CIDR from the allowlist:**
 ```bash
-make eks-revoke-ip IP=1.2.3.4/32
+# Remove from ISP security group
+make eks-revoke-ip IP=1.2.3.4/32 SG=isp
 
-# Or revoke a CIDR range
-make eks-revoke-ip IP=192.168.1.0/24
+# Remove from CloudFlare security group
+make eks-revoke-ip IP=1.2.3.4/32 SG=cloudflare
+
+# Revoke a CIDR range
+make eks-revoke-ip IP=192.168.1.0/24 SG=isp
+
+# SG parameter defaults to 'isp' if not specified
+make eks-revoke-ip IP=1.2.3.4/32
 ```
 
 **List all allowed IPs:**
@@ -1076,18 +1117,28 @@ make eks-revoke-ip IP=192.168.1.0/24
 make eks-list-ips
 ```
 
-This displays a table showing:
-- All CIDR blocks allowed for HTTPS (443) access
-- Description for each entry
-- Security group ID
+This displays both security groups showing:
+- **ISP Security Group**: Used when CloudFlare proxy is disabled (direct ALB access)
+  - Shows all CIDR blocks allowed for HTTPS (443) access
+  - Includes T-Mobile ISP base range plus any custom IPs
+- **CloudFlare Security Group**: Used when CloudFlare proxy is enabled (currently active)
+  - Shows all CloudFlare IP ranges (15 IPv4 + 7 IPv6 = 22 total ranges)
+  - CloudFlare IPs are auto-managed by Terraform
+  - Any custom IPs you've added for testing
 
 **How it works:**
-1. The `eks-allow-ip` target retrieves the ISP security group ID from Terraform state
-2. Adds an ingress rule for HTTPS (port 443) with the specified CIDR and description
-3. Changes take effect immediately (no deployment required)
-4. Rules are managed via AWS EC2 Security Group API
+1. The commands retrieve both ISP and CloudFlare security group IDs from Terraform state
+2. You specify which security group to modify with `SG=isp` or `SG=cloudflare`
+3. Adds/removes ingress rules for HTTPS (port 443) with the specified CIDR and description
+4. Changes take effect immediately (no deployment required)
+5. Rules are managed via AWS EC2 Security Group API
 
-**Note:** This is separate from the base ISP restrictions configured in `terraform/eks/isp-security-group.tf`. Base ISP ranges are managed through Terraform, while on-demand IPs are added via the Makefile for flexibility.
+**Important Notes:**
+- Use **ISP security group** when CloudFlare proxy is disabled (DNS-only mode)
+- Use **CloudFlare security group** when CloudFlare proxy is enabled (proxy mode)
+- Currently using CloudFlare security group (proxy mode active)
+- Base ISP and CloudFlare IP ranges are managed through Terraform
+- On-demand IPs are added via Makefile for flexibility
 
 ### ALB Configuration
 

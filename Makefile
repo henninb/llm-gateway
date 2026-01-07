@@ -242,15 +242,33 @@ eks-verify-cloudflare-dns: ## Verify/setup CloudFlare DNS (auto-sources .secrets
 		./tools/setup-cloudflare-dns.sh $(DOMAIN); \
 	fi
 
-eks-allow-ip: ## Add IP/CIDR to ALB security group (Usage: make eks-allow-ip IP=1.2.3.4/32 DESC="Office")
+eks-allow-ip: ## Add IP/CIDR to ALB security group (Usage: make eks-allow-ip IP=1.2.3.4/32 SG=isp|cloudflare DESC="Office")
 	@if [ -z "$(IP)" ]; then \
 		echo "Error: IP parameter is required"; \
-		echo "Usage: make eks-allow-ip IP=1.2.3.4/32 DESC=\"Optional description\""; \
+		echo "Usage: make eks-allow-ip IP=1.2.3.4/32 SG=isp|cloudflare DESC=\"Optional description\""; \
+		echo ""; \
+		echo "SG parameter options:"; \
+		echo "  isp        - ISP-restricted security group (for direct ALB access)"; \
+		echo "  cloudflare - CloudFlare security group (for CloudFlare proxy mode)"; \
 		exit 1; \
 	fi; \
-	SG_ID=$$(cd terraform/eks && terraform output -raw isp_security_group_id 2>/dev/null); \
+	SG_TYPE="$(SG)"; \
+	if [ -z "$$SG_TYPE" ]; then \
+		SG_TYPE="isp"; \
+		echo "Note: No SG specified, defaulting to ISP security group"; \
+	fi; \
+	if [ "$$SG_TYPE" = "isp" ]; then \
+		SG_ID=$$(cd terraform/eks && terraform output -raw isp_security_group_id 2>/dev/null); \
+		SG_NAME="ISP-restricted"; \
+	elif [ "$$SG_TYPE" = "cloudflare" ]; then \
+		SG_ID=$$(cd terraform/eks && terraform output -raw cloudflare_security_group_id 2>/dev/null); \
+		SG_NAME="CloudFlare"; \
+	else \
+		echo "Error: Invalid SG type '$$SG_TYPE'. Must be 'isp' or 'cloudflare'"; \
+		exit 1; \
+	fi; \
 	if [ -z "$$SG_ID" ]; then \
-		echo "Error: Could not find ISP security group ID"; \
+		echo "Error: Could not find $$SG_NAME security group ID"; \
 		echo "Make sure terraform/eks is initialized and applied"; \
 		exit 1; \
 	fi; \
@@ -263,14 +281,14 @@ eks-allow-ip: ## Add IP/CIDR to ALB security group (Usage: make eks-allow-ip IP=
 	if [ -z "$$DESC" ]; then \
 		DESC="Additional IP access - $$IP_CIDR"; \
 	fi; \
-	echo "Adding IP $$IP_CIDR to security group $$SG_ID..."; \
+	echo "Adding IP $$IP_CIDR to $$SG_NAME security group ($$SG_ID)..."; \
 	if aws ec2 authorize-security-group-ingress \
 		--group-id $$SG_ID \
 		--ip-permissions IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges="[{CidrIp=$$IP_CIDR,Description=\"$$DESC\"}]" \
 		--region $(AWS_REGION) 2>&1; then \
-		echo "✓ Successfully added IP $$IP_CIDR to ALB security group"; \
+		echo "✓ Successfully added IP $$IP_CIDR to $$SG_NAME ALB security group"; \
 		echo ""; \
-		echo "Current HTTPS rules:"; \
+		echo "Current HTTPS rules for $$SG_NAME:"; \
 		aws ec2 describe-security-groups --group-ids $$SG_ID --region $(AWS_REGION) \
 			--query 'SecurityGroups[0].IpPermissions[?FromPort==`443`].IpRanges[*].[CidrIp,Description]' \
 			--output table; \
@@ -278,15 +296,33 @@ eks-allow-ip: ## Add IP/CIDR to ALB security group (Usage: make eks-allow-ip IP=
 		echo "Note: Rule may already exist or there was an error"; \
 	fi
 
-eks-revoke-ip: ## Remove IP/CIDR from ALB security group (Usage: make eks-revoke-ip IP=1.2.3.4/32)
+eks-revoke-ip: ## Remove IP/CIDR from ALB security group (Usage: make eks-revoke-ip IP=1.2.3.4/32 SG=isp|cloudflare)
 	@if [ -z "$(IP)" ]; then \
 		echo "Error: IP parameter is required"; \
-		echo "Usage: make eks-revoke-ip IP=1.2.3.4/32"; \
+		echo "Usage: make eks-revoke-ip IP=1.2.3.4/32 SG=isp|cloudflare"; \
+		echo ""; \
+		echo "SG parameter options:"; \
+		echo "  isp        - ISP-restricted security group (for direct ALB access)"; \
+		echo "  cloudflare - CloudFlare security group (for CloudFlare proxy mode)"; \
 		exit 1; \
 	fi; \
-	SG_ID=$$(cd terraform/eks && terraform output -raw isp_security_group_id 2>/dev/null); \
+	SG_TYPE="$(SG)"; \
+	if [ -z "$$SG_TYPE" ]; then \
+		SG_TYPE="isp"; \
+		echo "Note: No SG specified, defaulting to ISP security group"; \
+	fi; \
+	if [ "$$SG_TYPE" = "isp" ]; then \
+		SG_ID=$$(cd terraform/eks && terraform output -raw isp_security_group_id 2>/dev/null); \
+		SG_NAME="ISP-restricted"; \
+	elif [ "$$SG_TYPE" = "cloudflare" ]; then \
+		SG_ID=$$(cd terraform/eks && terraform output -raw cloudflare_security_group_id 2>/dev/null); \
+		SG_NAME="CloudFlare"; \
+	else \
+		echo "Error: Invalid SG type '$$SG_TYPE'. Must be 'isp' or 'cloudflare'"; \
+		exit 1; \
+	fi; \
 	if [ -z "$$SG_ID" ]; then \
-		echo "Error: Could not find ISP security group ID"; \
+		echo "Error: Could not find $$SG_NAME security group ID"; \
 		echo "Make sure terraform/eks is initialized and applied"; \
 		exit 1; \
 	fi; \
@@ -295,14 +331,14 @@ eks-revoke-ip: ## Remove IP/CIDR from ALB security group (Usage: make eks-revoke
 		IP_CIDR="$$IP_CIDR/32"; \
 		echo "Note: Added /32 to IP address: $$IP_CIDR"; \
 	fi; \
-	echo "Removing IP $$IP_CIDR from security group $$SG_ID..."; \
+	echo "Removing IP $$IP_CIDR from $$SG_NAME security group ($$SG_ID)..."; \
 	if aws ec2 revoke-security-group-ingress \
 		--group-id $$SG_ID \
 		--ip-permissions IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges="[{CidrIp=$$IP_CIDR}]" \
 		--region $(AWS_REGION) 2>&1; then \
-		echo "✓ Successfully removed IP $$IP_CIDR from ALB security group"; \
+		echo "✓ Successfully removed IP $$IP_CIDR from $$SG_NAME ALB security group"; \
 		echo ""; \
-		echo "Current HTTPS rules:"; \
+		echo "Current HTTPS rules for $$SG_NAME:"; \
 		aws ec2 describe-security-groups --group-ids $$SG_ID --region $(AWS_REGION) \
 			--query 'SecurityGroups[0].IpPermissions[?FromPort==`443`].IpRanges[*].[CidrIp,Description]' \
 			--output table; \
@@ -311,15 +347,54 @@ eks-revoke-ip: ## Remove IP/CIDR from ALB security group (Usage: make eks-revoke
 		exit 1; \
 	fi
 
-eks-list-ips: ## List all IPs/CIDRs allowed in ALB security group
-	@SG_ID=$$(cd terraform/eks && terraform output -raw isp_security_group_id 2>/dev/null); \
-	if [ -z "$$SG_ID" ]; then \
-		echo "Error: Could not find ISP security group ID"; \
+eks-list-ips: ## List all IPs/CIDRs allowed in both ALB security groups (ISP and CloudFlare)
+	@echo "========================================"; \
+	echo "  ALB Security Group Access Rules"; \
+	echo "========================================"; \
+	echo ""; \
+	ISP_SG_ID=$$(cd terraform/eks && terraform output -raw isp_security_group_id 2>/dev/null); \
+	CF_SG_ID=$$(cd terraform/eks && terraform output -raw cloudflare_security_group_id 2>/dev/null); \
+	if [ -z "$$ISP_SG_ID" ] && [ -z "$$CF_SG_ID" ]; then \
+		echo "Error: Could not find any security group IDs"; \
 		echo "Make sure terraform/eks is initialized and applied"; \
 		exit 1; \
 	fi; \
-	echo "HTTPS (443) Access Rules for ALB Security Group ($$SG_ID):"; \
-	echo ""; \
-	aws ec2 describe-security-groups --group-ids $$SG_ID --region $(AWS_REGION) \
-		--query 'SecurityGroups[0].IpPermissions[?FromPort==`443`].IpRanges[*].[CidrIp,Description]' \
-		--output table
+	if [ -n "$$ISP_SG_ID" ]; then \
+		echo "📋 ISP-Restricted Security Group ($$ISP_SG_ID):"; \
+		echo "   Used when CloudFlare proxy is DISABLED (direct ALB access)"; \
+		echo ""; \
+		ISP_COUNT=$$(aws ec2 describe-security-groups --group-ids $$ISP_SG_ID --region $(AWS_REGION) \
+			--query 'length(SecurityGroups[0].IpPermissions[?FromPort==`443`].IpRanges[])' \
+			--output text 2>/dev/null || echo "0"); \
+		if [ "$$ISP_COUNT" -gt 0 ]; then \
+			aws ec2 describe-security-groups --group-ids $$ISP_SG_ID --region $(AWS_REGION) \
+				--query 'SecurityGroups[0].IpPermissions[?FromPort==`443`].IpRanges[*].[CidrIp,Description]' \
+				--output table; \
+		else \
+			echo "   (No custom IP rules - only base ISP ranges)"; \
+		fi; \
+		echo ""; \
+	fi; \
+	if [ -n "$$CF_SG_ID" ]; then \
+		echo "☁️  CloudFlare Security Group ($$CF_SG_ID):"; \
+		echo "   Used when CloudFlare proxy is ENABLED (currently active)"; \
+		echo ""; \
+		CF_COUNT=$$(aws ec2 describe-security-groups --group-ids $$CF_SG_ID --region $(AWS_REGION) \
+			--query 'length(SecurityGroups[0].IpPermissions[?FromPort==`443`].IpRanges[])' \
+			--output text 2>/dev/null || echo "0"); \
+		if [ "$$CF_COUNT" -gt 0 ]; then \
+			aws ec2 describe-security-groups --group-ids $$CF_SG_ID --region $(AWS_REGION) \
+				--query 'SecurityGroups[0].IpPermissions[?FromPort==`443`].IpRanges[*].[CidrIp,Description]' \
+				--output table; \
+			echo "   ($$CF_COUNT CloudFlare IP ranges - auto-managed by Terraform)"; \
+		else \
+			echo "   (No IP rules found)"; \
+		fi; \
+		echo ""; \
+	fi; \
+	echo "========================================"; \
+	echo "To add/remove IPs:"; \
+	echo "  make eks-allow-ip IP=1.2.3.4/32 SG=isp DESC=\"Office\""; \
+	echo "  make eks-allow-ip IP=1.2.3.4/32 SG=cloudflare DESC=\"Testing\""; \
+	echo "  make eks-revoke-ip IP=1.2.3.4/32 SG=isp"; \
+	echo "========================================"

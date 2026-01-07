@@ -196,6 +196,96 @@ terraform apply -auto-approve
 
 The ALB will automatically update the HTTPS listener to use the new certificate.
 
+### Step 5a: Update Security Groups for CloudFlare
+
+**⚠️ CRITICAL:** When switching to CloudFlare proxy mode, you must update BOTH the ALB security group AND the worker node security group to allow CloudFlare IPs instead of ISP IPs.
+
+**1. Update ALB Security Group** (`terraform/eks/openwebui.tf`):
+
+```bash
+# Edit the ingress annotations
+nano terraform/eks/openwebui.tf
+```
+
+Find line 229 and change:
+```hcl
+# BEFORE (ISP security group)
+"alb.ingress.kubernetes.io/security-groups" = aws_security_group.isp_restricted.id
+
+# AFTER (CloudFlare security group)
+"alb.ingress.kubernetes.io/security-groups" = aws_security_group.cloudflare_only.id
+```
+
+**2. Update Worker Node Security Group** (`terraform/eks/isp-security-group.tf`):
+
+```bash
+# Edit the worker node ingress rule
+nano terraform/eks/isp-security-group.tf
+```
+
+Find line 65 and change:
+```hcl
+# BEFORE (allows ISP security group to reach pods)
+source_security_group_id = aws_security_group.isp_restricted.id
+
+# AFTER (allows CloudFlare security group to reach pods)
+source_security_group_id = aws_security_group.cloudflare_only.id
+```
+
+**3. Apply Security Group Changes:**
+
+```bash
+cd terraform/eks
+
+# Review changes (should show 2 security group updates)
+terraform plan
+
+# Apply changes
+terraform apply -auto-approve
+```
+
+**Expected changes:**
+```
+# kubernetes_ingress_v1.openwebui[0] will be updated in-place
+~ annotations = {
+    ~ "alb.ingress.kubernetes.io/security-groups" = "sg-0d71d9debeb502200" -> "sg-04180862f96b4ef60"
+  }
+
+# aws_security_group_rule.worker_node_from_alb must be replaced
+-/+ resource "aws_security_group_rule" "worker_node_from_alb" {
+    ~ source_security_group_id = "sg-0d71d9debeb502200" -> "sg-04180862f96b4ef60"
+  }
+```
+
+**4. Wait for Health Checks:**
+
+After applying, wait 30-60 seconds for ALB health checks to pass:
+
+```bash
+# Check target health
+TARGET_GROUP_ARN=$(aws elbv2 describe-target-groups \
+  --query 'TargetGroups[?contains(TargetGroupName, `k8s-llmgatew-openweb`)].TargetGroupArn' \
+  --output text)
+
+aws elbv2 describe-target-health \
+  --target-group-arn $TARGET_GROUP_ARN \
+  --query 'TargetHealthDescriptions[*].{Target:Target.Id,Health:TargetHealth.State}' \
+  --output table
+```
+
+**Expected output:**
+```
+-----------------------------------
+|      DescribeTargetHealth       |
++----------+---------------------+
+|  Health  |       Target        |
++----------+---------------------+
+|  healthy |  10.0.10.47         |
++----------+---------------------+
+```
+
+✅ **Why this is critical:** Without updating the worker node security group, the ALB cannot reach the pods on port 8080, causing health checks to fail with `Target.Timeout` errors. This will result in CloudFlare returning HTTP 522 errors even though all other configuration is correct.
+
 ### Step 6: Configure CloudFlare SSL Mode
 
 Set CloudFlare to validate the origin certificate:
@@ -225,6 +315,36 @@ The script will detect that proxy mode should be enabled and configure it.
 2. Find the `openwebui` CNAME record
 3. Click to enable the **orange cloud** ☁️ (Proxied)
 4. Save
+
+**⚠️ Important:** After enabling proxy mode, allow 30-60 seconds for CloudFlare edge propagation before testing. The first few requests may return HTTP 522 errors during propagation.
+
+### Step 7a: Verify Proxy Mode is Working
+
+Wait 30-60 seconds after enabling proxy mode, then test:
+
+```bash
+# Test HTTPS connectivity through CloudFlare
+curl -I https://openwebui.bhenning.com
+```
+
+**Expected successful response:**
+```
+HTTP/2 200
+server: cloudflare
+cf-ray: 9ba353aa69750f1d-ORD
+cf-cache-status: DYNAMIC
+```
+
+**Key indicators:**
+- ✅ `HTTP/2 200` - Site is accessible
+- ✅ `server: cloudflare` - Traffic going through CloudFlare
+- ✅ `cf-ray: ...` - CloudFlare request ID (confirms proxy is active)
+
+**If you see HTTP 522 errors:**
+- Wait another 30-60 seconds (CloudFlare edge propagation)
+- Verify ALB target health is "healthy" (see Step 5a)
+- Verify CloudFlare SSL/TLS mode is "Full (strict)" (see Step 6)
+- Check troubleshooting section below
 
 ### Step 8: Clean Up Sensitive Files
 
@@ -345,6 +465,83 @@ Check CloudFlare dashboard:
 3. Go to **SSL/TLS** → **Origin Server** - should show your origin certificate
 
 ## Troubleshooting
+
+### CloudFlare Shows Error "522: Connection Timed Out" (Most Common)
+
+**Symptom:**
+```
+HTTP/2 522
+server: cloudflare
+cf-ray: 9ba34ae7ea6f1393-ORD
+```
+
+**This is the MOST COMMON issue** when setting up CloudFlare proxy mode. The error means CloudFlare can connect to your origin but receives no response.
+
+**Root Cause:**
+Worker node security group not updated to allow CloudFlare security group to reach pods on port 8080.
+
+**Diagnosis:**
+```bash
+# 1. Check ALB target health
+TARGET_GROUP_ARN=$(aws elbv2 describe-target-groups \
+  --query 'TargetGroups[?contains(TargetGroupName, `k8s-llmgatew-openweb`)].TargetGroupArn' \
+  --output text)
+
+aws elbv2 describe-target-health \
+  --target-group-arn $TARGET_GROUP_ARN \
+  --query 'TargetHealthDescriptions[*].{Target:Target.Id,Health:TargetHealth.State,Reason:TargetHealth.Reason}' \
+  --output table
+```
+
+**If you see `unhealthy` with `Target.Timeout`:**
+```
+-------------------------------------------------------
+|                DescribeTargetHealth                 |
++-----------+-------+------------------+--------------+
+|  Health   | Port  |     Reason       |   Target     |
++-----------+-------+------------------+--------------+
+|  unhealthy|  8080 |  Target.Timeout  |  10.0.10.47  |
++-----------+-------+------------------+--------------+
+```
+
+This confirms the worker node security group is blocking traffic from the ALB.
+
+**Solution:**
+
+Update the worker node security group in `terraform/eks/isp-security-group.tf`:
+
+```hcl
+# Line 65: Change from ISP to CloudFlare security group
+resource "aws_security_group_rule" "worker_node_from_alb" {
+  type                     = "ingress"
+  from_port                = 8080
+  to_port                  = 8080
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.cloudflare_only.id  # Changed from isp_restricted
+  security_group_id        = data.aws_eks_cluster.cluster.vpc_config[0].cluster_security_group_id
+  description              = "Allow ALB (with CloudFlare SG) to reach OpenWebUI pods on port 8080"
+}
+```
+
+Apply the change:
+```bash
+cd terraform/eks
+terraform apply -auto-approve
+```
+
+Wait 30-60 seconds for health checks to pass, then verify:
+```bash
+# Target should now show as healthy
+aws elbv2 describe-target-health --target-group-arn $TARGET_GROUP_ARN
+
+# Test the site
+curl -I https://openwebui.bhenning.com
+# Should return HTTP/2 200
+```
+
+**Prevention:** Always update BOTH security groups when switching to CloudFlare proxy mode:
+1. ALB security group (in `openwebui.tf`)
+2. Worker node security group (in `isp-security-group.tf`)
 
 ### CloudFlare Shows SSL Error "526: Invalid SSL Certificate"
 
@@ -602,19 +799,38 @@ This guide walked you through setting up CloudFlare Origin Certificates to enabl
 1. ✅ Generate CloudFlare Origin Certificate (15-year validity)
 2. ✅ Import certificate to AWS ACM
 3. ✅ Update Terraform configuration with new certificate ARN
-4. ✅ Apply Terraform to update ALB listener
-5. ✅ Set CloudFlare SSL mode to "Full (strict)"
-6. ✅ Enable CloudFlare proxy mode (`proxied: true`)
-7. ✅ Verify end-to-end HTTPS works
+4. ✅ Apply Terraform to update ALB listener with CloudFlare certificate
+5. ✅ **CRITICAL:** Update BOTH security groups (ALB + worker node) to allow CloudFlare IPs
+6. ✅ Set CloudFlare SSL mode to "Full (strict)"
+7. ✅ Enable CloudFlare proxy mode (`proxied: true`)
+8. ✅ Wait for CloudFlare edge propagation (30-60 seconds)
+9. ✅ Verify end-to-end HTTPS works (HTTP 200 with cf-ray header)
+
+**Critical Learnings:**
+- ⚠️ **Must update BOTH security groups:** ALB security group (in `openwebui.tf`) AND worker node security group (in `isp-security-group.tf`)
+- ⚠️ **Worker node security group is critical:** Without updating it, ALB cannot reach pods on port 8080, causing health check failures and HTTP 522 errors
+- ⚠️ **Allow propagation time:** After enabling proxy mode, wait 30-60 seconds for CloudFlare edge servers to update
+- ⚠️ **Verify health checks pass:** Use `aws elbv2 describe-target-health` to confirm targets are healthy before testing
 
 You now have:
-- End-to-end encryption (Client → CloudFlare → ALB)
-- CloudFlare DDoS protection and WAF capabilities
-- Edge caching and performance optimizations
-- Hidden origin server (ALB hostname not exposed)
+- ✅ End-to-end encryption (Client → CloudFlare → ALB → Pods)
+- ✅ CloudFlare DDoS protection and WAF capabilities
+- ✅ Edge caching and performance optimizations (300+ data centers)
+- ✅ Hidden origin server (ALB hostname not exposed to public)
+- ✅ Bot detection and geographic data headers
+- ✅ HTTP/3 and Brotli compression support
+
+**Verified Working Configuration:**
+- Certificate: CloudFlare Origin Certificate (issued by CloudFlare, Inc.)
+- ALB Security Group: `cloudflare_only` (allows CloudFlare IP ranges)
+- Worker Node Security Group: Allows `cloudflare_only` security group on port 8080
+- CloudFlare SSL/TLS Mode: "Full (strict)"
+- CloudFlare Proxy: Enabled (`proxied: true`)
+- DNS Resolution: Points to CloudFlare IPs (104.x.x.x, 172.x.x.x)
 
 **Next Steps:**
 - Enable CloudFlare WAF rules for additional security
 - Configure CloudFlare Page Rules for caching optimization
 - Set up CloudFlare Analytics dashboards
 - Consider CloudFlare Workers for edge computing
+- Monitor CloudFlare Analytics for traffic patterns and threats

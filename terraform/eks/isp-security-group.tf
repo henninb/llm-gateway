@@ -62,9 +62,9 @@ resource "aws_security_group_rule" "worker_node_from_alb" {
   from_port                = 8080
   to_port                  = 8080
   protocol                 = "tcp"
-  source_security_group_id = aws_security_group.isp_restricted.id
+  source_security_group_id = aws_security_group.cloudflare_only.id
   security_group_id        = data.aws_eks_cluster.cluster.vpc_config[0].cluster_security_group_id
-  description              = "Allow ALB to reach OpenWebUI pods on port 8080"
+  description              = "Allow ALB (with CloudFlare SG) to reach OpenWebUI pods on port 8080"
 }
 
 # Output the security group ID for reference
