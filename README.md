@@ -6,6 +6,107 @@ A production-ready, secure, and cost-optimized LLM gateway deployed on AWS EKS w
 
 LLM Gateway is a unified interface for accessing multiple AI model providers (AWS Bedrock, Perplexity) through a single endpoint. Built with security, cost optimization, and production best practices in mind, it demonstrates enterprise-grade cloud architecture and DevOps practices.
 
+## Table of Contents
+
+- [Project Structure](#project-structure)
+- [Architecture](#architecture)
+- [Key Features](#key-features)
+- [Prerequisites](#prerequisites)
+- [Quick Start - Local Development](#quick-start---local-development)
+  - [Available Makefile Commands](#available-makefile-commands)
+- [AWS EKS Deployment](#aws-eks-deployment)
+- [Configuration](#configuration)
+  - [LiteLLM Configuration](#litellm-configuration)
+  - [Custom Guardrails](#custom-guardrails-example-implementation)
+  - [Known Issues and Patches](#known-issues-and-patches)
+  - [Terraform Variables](#terraform-variables)
+- [Security Features](#security-features)
+- [Cost Breakdown](#cost-breakdown)
+- [Usage](#usage)
+  - [Arena Mode](#arena-mode-blind-random-model-selection)
+  - [Available Models](#available-models)
+  - [API Access](#api-access)
+- [Testing](#testing)
+- [Operations & Monitoring](#operations--monitoring)
+  - [Cost Reporting](#cost-reporting)
+  - [IAM Security Architecture Report](#iam-security-architecture-report)
+  - [Port Forwarding](#port-forwarding-for-local-testing)
+  - [DNS Management](#dns-management--verification)
+  - [IP Allowlisting](#ip-allowlisting-on-demand-access-control)
+  - [ALB Configuration](#alb-configuration)
+- [Troubleshooting](#troubleshooting)
+- [Maintenance](#maintenance)
+- [Additional Tools and Scripts](#additional-tools-and-scripts)
+- [Future Enhancements](#future-enhancements)
+- [Architecture Decisions](#architecture-decisions)
+- [License](#license)
+- [Author](#author)
+- [Acknowledgments](#acknowledgments)
+
+## Project Structure
+
+```
+llm-gateway/
+├── config/                      # LiteLLM configuration and custom guardrails
+│   ├── litellm_config.yaml     # Model definitions, guardrails, and LiteLLM settings
+│   └── custom_guardrail.py     # Example content filtering implementation
+├── patches/                     # LiteLLM bug fixes applied during Docker build
+│   └── apply_litellm_fix.py    # Fix for ModifyResponseException streaming bug
+├── terraform/                   # Infrastructure as Code
+│   ├── ecr/                    # Container registry repositories
+│   ├── eks-cluster/            # EKS cluster, VPC, and base infrastructure
+│   └── eks/                    # Application deployment (LiteLLM, OpenWebUI)
+├── tests/                       # Comprehensive test suites
+│   ├── test-guardrails.py      # Pre/post-call content filtering tests
+│   ├── test-litellm-models-api.sh  # Model connectivity tests (7 models)
+│   ├── test-litellm-models-api.py  # Python version of model tests
+│   ├── test-health.sh          # Service health checks
+│   ├── test-production.sh      # Production deployment validation
+│   └── curl-examples.sh        # Interactive API testing examples
+├── tools/                       # Operational and reporting scripts
+│   ├── build-and-push-ecr.sh   # Build and push Docker images to ECR
+│   ├── setup-cloudflare-dns.sh # Automated DNS setup via CloudFlare API
+│   ├── report-aws-costs.sh     # AWS cost reporting (shell version)
+│   ├── report-aws-costs.py     # AWS cost reporting (Python, rich output)
+│   ├── report-iam-roles.sh     # IAM security architecture report
+│   ├── validate-setup.sh       # Validate required tools installed
+│   ├── test-cloudflare-restriction.sh  # Test CloudFlare IP restrictions
+│   └── verify-cloudflare-ips.sh    # Verify CloudFlare IP ranges
+├── Dockerfile                   # LiteLLM container with bug patches
+├── Dockerfile.openwebui         # OpenWebUI container configuration
+├── docker-compose.yml           # Local development environment
+├── Makefile                     # Comprehensive automation commands
+├── .secrets.example             # Template for required secrets
+├── BUG-LITELLM-STREAMING.md    # Documentation of LiteLLM streaming bug and patch
+├── BUG-FORMAT-MISMATCH.md      # Explanation of JSON vs SSE response formats
+├── CLOUDFLARE-CERT.md          # CloudFlare Origin Certificate setup guide
+└── README.md                    # This file (project documentation)
+```
+
+**Terraform Modules:**
+- **`terraform/ecr/`**: Creates ECR repositories for LiteLLM and OpenWebUI images (deployed first)
+- **`terraform/eks-cluster/`**: Provisions EKS cluster, VPC, subnets, NAT gateway, IAM roles, and base infrastructure
+- **`terraform/eks/`**: Deploys applications (LiteLLM, OpenWebUI), ALB ingress, security groups, network policies, and IRSA roles
+
+**Key Files:**
+- **`.secrets`**: Your local secrets file (create from `.secrets.example`, never commit to git)
+- **`.secrets.example`**: Template for required secrets with instructions
+- **`Makefile`**: Comprehensive automation for all operations (run `make help` to see all commands)
+- **`requirements.txt`**: Python dependencies for LiteLLM patches
+- **`requirements-proxy.txt`**: Dependencies for legacy proxy solution
+
+**Documentation:**
+- **`README.md`**: This file - comprehensive project documentation
+- **`CLOUDFLARE-CERT.md`**: Guide for CloudFlare Origin Certificate setup and proxy mode
+- **`BUG-LITELLM-STREAMING.md`**: LiteLLM streaming bug details and patch explanation
+- **`BUG-FORMAT-MISMATCH.md`**: JSON dict vs SSE response format differences
+
+**Legacy/Reference:**
+- **`proxy.py`**: Legacy proxy solution for guardrail error handling (superseded by LiteLLM passthrough mode)
+- **`Dockerfile.proxy`**: Docker configuration for legacy proxy
+
+**Note:** The project now uses LiteLLM's native `on_flagged_action: "passthrough"` mode for guardrail error handling, making the proxy solution unnecessary. The proxy files are kept for reference and potential future use cases.
+
 ## Architecture
 
 ### Production (AWS EKS)
@@ -102,7 +203,7 @@ cd llm-gateway
 pip3 install cryptography
 ```
 
-3. Create `.secrets` file:
+3. Create `.secrets` file (template available in `.secrets.example`):
 ```bash
 # Generate secure random keys
 LITELLM_KEY=$(openssl rand -hex 32)
@@ -189,6 +290,11 @@ make eks-destroy          # Destroy EKS deployment
 make eks-secrets-populate # Populate AWS Secrets Manager with API keys
 make eks-port-forward     # Forward LiteLLM from EKS to localhost:4000
 make eks-verify-cloudflare-dns # Auto-setup/verify CloudFlare DNS in DNS-only mode (recommended)
+
+# EKS Security Group Management
+make eks-allow-ip IP=1.2.3.4/32 DESC="Office"  # Add IP/CIDR to ALB security group
+make eks-revoke-ip IP=1.2.3.4/32               # Remove IP/CIDR from ALB security group
+make eks-list-ips                              # List all allowed IPs in ALB security group
 ```
 
 ## AWS EKS Deployment
@@ -220,15 +326,51 @@ make eks-cluster-kubeconfig
 
 ### Step 3: Create Secrets in AWS Secrets Manager
 
-First, create a `.secrets` file in the project root with your API keys (see Quick Start section above for format).
+**Required secrets:**
+- `PERPLEXITY_API_KEY` - API key from Perplexity (get from https://www.perplexity.ai/settings/api)
+- `LITELLM_MASTER_KEY` - Authentication key for LiteLLM API (generate with `openssl rand -hex 32`)
+- `WEBUI_SECRET_KEY` - Fernet encryption key for OpenWebUI (generate with the Python command below)
 
-Then populate AWS Secrets Manager:
+**Setup process:**
+
+1. Create a `.secrets` file in the project root (use `.secrets.example` as template):
 ```bash
-# From project root directory
+# Generate secure keys
+LITELLM_KEY=$(openssl rand -hex 32)
+WEBUI_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+
+# Create .secrets file
+cat > .secrets <<EOF
+# AWS Credentials (for local Bedrock testing)
+AWS_ACCESS_KEY_ID=your-access-key
+AWS_SECRET_ACCESS_KEY=your-secret-key
+AWS_REGION=us-east-1
+
+# Required for LiteLLM and OpenWebUI
+LITELLM_MASTER_KEY=${LITELLM_KEY}
+WEBUI_SECRET_KEY=${WEBUI_KEY}
+
+# Required for Perplexity models
+PERPLEXITY_API_KEY=your-perplexity-key
+
+# Optional: CloudFlare API credentials for automated DNS
+CF_API_KEY=your-cloudflare-api-key
+CF_EMAIL=your-cloudflare-email
+EOF
+```
+
+2. Populate AWS Secrets Manager (automatically creates secret if missing):
+```bash
 make eks-secrets-populate
 ```
 
-This will load the secrets from your `.secrets` file and store them in AWS Secrets Manager under the secret `llm-gateway/api-keys`.
+This command:
+- Reads secrets from your `.secrets` file
+- Creates the AWS Secrets Manager secret `llm-gateway/api-keys` (if it doesn't exist)
+- Stores all three required keys in a single JSON secret
+- Validates that all required keys are present
+
+**Important:** AWS credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) are only needed for local testing. In EKS, pods use IRSA (IAM Roles for Service Accounts) to access AWS Bedrock without static credentials.
 
 ### Step 4: Request ACM Certificate
 
@@ -445,6 +587,36 @@ This implementation demonstrates enterprise-grade content filtering that can be 
 - Compliance requirements (GDPR, HIPAA, etc.)
 - Output safety and content moderation
 
+### Known Issues and Patches
+
+The project includes patches for known LiteLLM bugs that are applied automatically during Docker build:
+
+#### LiteLLM Streaming Bug (v1.80.11)
+
+**Issue:** LiteLLM crashes with 500 Internal Server Error when a guardrail blocks content in streaming mode (`stream=true`) with `on_flagged_action: "passthrough"`.
+
+**Error:** `AttributeError: 'NoneType' object has no attribute 'model_call_details'`
+
+**Root cause:** The `litellm_logging_obj` is `None` when `ModifyResponseException` is raised in the pre-call hook, causing `CustomStreamWrapper` to crash.
+
+**Our fix:** `patches/apply_litellm_fix.py` initializes the missing `litellm_logging_obj` before creating the streaming wrapper.
+
+**Applied:** Automatically during `docker build` in `Dockerfile`
+
+**Documentation:** See `BUG-LITELLM-STREAMING.md` for complete details on the bug, reproduction steps, and when to remove the patch.
+
+**Current status:** Unresolved upstream as of January 2026. LiteLLM image is pinned to specific SHA256 hash until fixed.
+
+#### Response Format Differences
+
+**Issue:** LiteLLM returns different response formats depending on streaming mode - JSON dict for `stream=false`, SSE chunks for `stream=true`.
+
+**Impact:** Content filtering hooks (`async_post_call_success_hook`) only execute for non-streaming responses, making output filtering impossible in streaming mode.
+
+**Solution:** Force `stream=false` globally via guardrail pre-call hook to ensure content filtering works reliably.
+
+**Documentation:** See `BUG-FORMAT-MISMATCH.md` for detailed explanation of JSON vs SSE response formats.
+
 ### Terraform Variables
 
 Key variables in `terraform/eks/terraform.tfvars`:
@@ -528,7 +700,7 @@ OpenWebUI's Arena Mode provides **blind testing** by randomly selecting ONE mode
 
 **Configuration:**
 
-Arena Mode is configured via environment variables in `terraform/eks/openwebui.tf`, `Dockerfile.openwebui`, and `docker-compose.yml`:
+Arena Mode is configured via environment variables in `Dockerfile.openwebui` and `docker-compose.yml`:
 
 ```bash
 # Enable/Disable Arena Mode
@@ -537,8 +709,8 @@ ENABLE_EVALUATION_ARENA_MODELS=false  # Currently disabled
 # Configure which models to use (if enabled)
 EVALUATION_ARENA_MODELS='["nova-lite","nova-pro","llama3-2-3b"]'
 
-# Force environment variables to take precedence over admin UI settings
-ENABLE_PERSISTENT_CONFIG=false
+# Allow OpenWebUI admin settings to persist across restarts
+ENABLE_PERSISTENT_CONFIG=true  # Admin UI changes are saved to database
 ```
 
 **Important Streaming Behavior:**
@@ -549,7 +721,7 @@ OpenWebUI **always forces `stream=true`** for ANY model used in the Arena Mode c
 - This is OpenWebUI's default behavior and cannot be overridden
 - Non-arena models respect LiteLLM's streaming configuration
 
-**Note**: With `ENABLE_PERSISTENT_CONFIG=false`, the environment variables override any Arena configuration made in the OpenWebUI admin panel. Changes in the UI will apply during the current session but won't persist after restart.
+**Note**: With `ENABLE_PERSISTENT_CONFIG=true`, changes made in the OpenWebUI admin panel are saved to the database and persist across restarts. Environment variables set initial defaults but can be overridden through the UI.
 
 ### Available Models
 - **AWS Bedrock Nova**: nova-micro, nova-lite, nova-pro
@@ -843,6 +1015,52 @@ dig +short openwebui.bhenning.com
 curl -I https://openwebui.bhenning.com
 ```
 
+### IP Allowlisting (On-Demand Access Control)
+
+The project includes on-demand IP allowlisting for temporary access to the application. This is useful for:
+- Granting access to specific users or offices
+- Allowing access from dynamic IPs (home networks, mobile devices)
+- Temporary access for contractors or partners
+- Testing from different networks
+
+**Add an IP/CIDR to the allowlist:**
+```bash
+# Add a single IP
+make eks-allow-ip IP=1.2.3.4 DESC="John's home office"
+
+# Add a CIDR range
+make eks-allow-ip IP=192.168.1.0/24 DESC="Office network"
+
+# IP without /32 will be automatically converted to /32
+make eks-allow-ip IP=1.2.3.4 DESC="Alice laptop"  # Becomes 1.2.3.4/32
+```
+
+**Remove an IP/CIDR from the allowlist:**
+```bash
+make eks-revoke-ip IP=1.2.3.4/32
+
+# Or revoke a CIDR range
+make eks-revoke-ip IP=192.168.1.0/24
+```
+
+**List all allowed IPs:**
+```bash
+make eks-list-ips
+```
+
+This displays a table showing:
+- All CIDR blocks allowed for HTTPS (443) access
+- Description for each entry
+- Security group ID
+
+**How it works:**
+1. The `eks-allow-ip` target retrieves the ISP security group ID from Terraform state
+2. Adds an ingress rule for HTTPS (port 443) with the specified CIDR and description
+3. Changes take effect immediately (no deployment required)
+4. Rules are managed via AWS EC2 Security Group API
+
+**Note:** This is separate from the base ISP restrictions configured in `terraform/eks/isp-security-group.tf`. Base ISP ranges are managed through Terraform, while on-demand IPs are added via the Makefile for flexibility.
+
 ### ALB Configuration
 
 The ALB is configured with:
@@ -850,12 +1068,7 @@ The ALB is configured with:
 - **TLS 1.3 security policy** (ELBSecurityPolicy-TLS13-1-2-2021-06)
 - **Target type: IP** - Routes directly to pod IPs
 - **Health checks** - Validates pod availability before routing traffic
-
-Allowlist additional IPs/CIDRs in the ALB security group:
-
-```bash
-make eks-allow-ip IP=1.2.3.4/32 DESC="Office"
-```
+- **Security groups** - Restricts access to authorized IP ranges (ISP-based + on-demand allowlist)
 
 To view ALB configuration:
 
@@ -1063,18 +1276,80 @@ cd terraform/eks-cluster
 terraform apply
 ```
 
+## Additional Tools and Scripts
+
+The `tools/` directory contains helper scripts for operations, reporting, and automation:
+
+### Operational Scripts
+
+- **`validate-setup.sh`**: Validates that all required tools are installed (terraform, aws-cli, kubectl, docker, etc.)
+  ```bash
+  make validate-setup
+  # Or run directly: ./tools/validate-setup.sh
+  ```
+
+- **`build-and-push-ecr.sh`**: Builds Docker images and pushes to ECR with specified tag
+  ```bash
+  make ecr-build-push  # Uses 'latest' tag
+  # Or: ./tools/build-and-push-ecr.sh v1.2.3
+  ```
+
+- **`setup-cloudflare-dns.sh`**: Automated DNS setup via CloudFlare API
+  ```bash
+  make eks-verify-cloudflare-dns
+  # Or: ./tools/setup-cloudflare-dns.sh openwebui.example.com
+  ```
+
+### Reporting Scripts
+
+- **`report-aws-costs.py`**: Python cost reporting with rich formatting and colors
+  ```bash
+  make aws-costs-py
+  # Or: AWS_REGION=us-east-1 python3 tools/report-aws-costs.py
+  ```
+
+- **`report-aws-costs.sh`**: Shell script version of cost reporting (no dependencies)
+  ```bash
+  make aws-costs
+  # Or: AWS_REGION=us-east-1 ./tools/report-aws-costs.sh
+  ```
+
+- **`report-iam-roles.sh`**: Displays IAM roles, IRSA configuration, and security architecture
+  ```bash
+  make iam-report
+  # Or: CLUSTER_NAME=llm-gateway-eks AWS_REGION=us-east-1 ./tools/report-iam-roles.sh
+  ```
+
+### Security Verification Scripts
+
+- **`verify-cloudflare-ips.sh`**: Verifies that ALB security group contains current CloudFlare IP ranges
+  ```bash
+  ./tools/verify-cloudflare-ips.sh
+  ```
+
+- **`test-cloudflare-restriction.sh`**: Tests ALB accessibility from different IP ranges
+  ```bash
+  ./tools/test-cloudflare-restriction.sh
+  ```
+
+**Note:** All `make` targets source `.secrets` automatically if the file exists, making it easy to use CloudFlare API credentials or other environment-specific settings.
+
 ## Future Enhancements
 
 - [x] **Custom guardrails/content filtering** (example implementation included)
 - [x] **Automated CloudFlare DNS management** (via API)
+- [x] **On-demand IP allowlisting** (via Makefile targets)
+- [x] **Comprehensive testing suite** (health, models, guardrails)
+- [x] **Cost and IAM reporting tools** (Python and shell versions)
+- [x] **LiteLLM bug patches** (streaming and response format issues)
 - [ ] Prometheus + Grafana observability stack
 - [ ] Custom function calling tools
 - [ ] RAG with vector database (Pinecone/Weaviate)
-- [ ] Cost analytics dashboard
+- [ ] Cost analytics dashboard with time-series graphs
 - [ ] Automated API key rotation
 - [ ] Advanced content moderation (PII detection, prompt injection prevention)
-- [ ] Multi-region deployment
-- [ ] OAuth/SSO authentication
+- [ ] Multi-region deployment with global load balancing
+- [ ] OAuth/SSO authentication (Keycloak, Auth0, AWS Cognito)
 
 ## Architecture Decisions
 
