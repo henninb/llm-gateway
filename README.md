@@ -40,6 +40,7 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 ### Security
 - **Zero-Trust Networking**: Kubernetes NetworkPolicies enforce pod-to-pod isolation
 - **ISP-Based Access Control**: ALB security groups restrict HTTPS access to authorized IP ranges (FREE)
+- **On-Demand IP Allowlisting**: Add temporary IP/CIDR access with `make eks-allow-ip`
 - **IRSA (IAM Roles for Service Accounts)**: AWS service authentication without static credentials
 - **Non-Root Containers**: All containers run as unprivileged users (UID 1000)
 - **HTTPS/TLS**: ACM certificate with ALB SSL termination
@@ -70,6 +71,7 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 - **Auto-Scaling**: EKS node group scales based on demand
 - **Health Checks**: Kubernetes liveness/readiness probes
 - **Automated DNS Management**: CloudFlare API integration for DNS-only setup
+- **CloudFlare Proxy Ready**: Origin certificate workflow documented in `CLOUDFLARE-CERT.md`
 
 ## Prerequisites
 
@@ -848,6 +850,12 @@ The ALB is configured with:
 - **TLS 1.3 security policy** (ELBSecurityPolicy-TLS13-1-2-2021-06)
 - **Target type: IP** - Routes directly to pod IPs
 - **Health checks** - Validates pod availability before routing traffic
+
+Allowlist additional IPs/CIDRs in the ALB security group:
+
+```bash
+make eks-allow-ip IP=1.2.3.4/32 DESC="Office"
+```
 
 To view ALB configuration:
 

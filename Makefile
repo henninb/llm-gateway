@@ -235,12 +235,6 @@ eks-port-forward: ## Forward LiteLLM from EKS to localhost:4000 (Ctrl+C to stop)
 	@echo "Forwarding localhost:4000 -> llm-gateway/litellm:80 (press Ctrl+C to stop)"
 	@kubectl port-forward -n llm-gateway svc/litellm 4000:80
 
-eks-verify-cloudflare: ## Verify CloudFlare IP ranges in NLB security group
-	@./tools/verify-cloudflare-ips.sh
-
-eks-test-cloudflare-restriction: ## Test that NLB only accepts CloudFlare IPs (optionally set DOMAIN=your-domain.com)
-	@./tools/test-cloudflare-restriction.sh $(DOMAIN)
-
 eks-verify-cloudflare-dns: ## Verify/setup CloudFlare DNS (auto-sources .secrets if exists, optionally set DOMAIN=your-domain.com)
 	@if [ -f .secrets ]; then \
 		set -a && . ./.secrets && set +a && ./tools/setup-cloudflare-dns.sh $(DOMAIN); \
