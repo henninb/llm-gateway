@@ -109,8 +109,53 @@ fi
 printf "  Zone ID: %b%s%b\n" "$GREEN" "$ZONE_ID" "$NC"
 printf "\n"
 
-# Step 3: Check if DNS record exists
-printf "3. Checking if DNS record exists for %s...\n" "$DOMAIN"
+# Step 2b: Check SSL/TLS encryption mode
+printf "3. Checking SSL/TLS encryption mode...\n"
+if [ -n "$CF_API_TOKEN" ]; then
+  SSL_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/settings/ssl" \
+    -H "$AUTH_HEADER" \
+    -H "Content-Type: application/json")
+else
+  SSL_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/settings/ssl" \
+    -H "$AUTH_HEADER_1" \
+    -H "$AUTH_HEADER_2" \
+    -H "Content-Type: application/json")
+fi
+
+SSL_MODE=$(echo "$SSL_RESPONSE" | grep -o '"value":"[^"]*' | head -1 | cut -d'"' -f4)
+
+if [ -z "$SSL_MODE" ]; then
+  printf "  %b⚠ Could not retrieve SSL/TLS mode%b\n" "$YELLOW" "$NC"
+  printf "  Response: %s\n" "$SSL_RESPONSE"
+else
+  case "$SSL_MODE" in
+    "strict")
+      printf "  Current mode: %b✓ Full (strict)%b - Origin certificate validated\n" "$GREEN" "$NC"
+      ;;
+    "full")
+      printf "  Current mode: %b⚠ Full%b - Origin certificate NOT validated\n" "$YELLOW" "$NC"
+      printf "  %b→ Recommendation: Change to 'Full (strict)' mode for production%b\n" "$YELLOW" "$NC"
+      printf "  Go to: CloudFlare Dashboard → SSL/TLS → Overview → Full (strict)\n"
+      ;;
+    "flexible")
+      printf "  Current mode: %b✗ Flexible%b - No encryption to origin server\n" "$RED" "$NC"
+      printf "  %b→ CRITICAL: Change to 'Full (strict)' mode immediately%b\n" "$RED" "$NC"
+      printf "  Go to: CloudFlare Dashboard → SSL/TLS → Overview → Full (strict)\n"
+      ;;
+    "off")
+      printf "  Current mode: %b✗ Off%b - SSL/TLS disabled\n" "$RED" "$NC"
+      printf "  %b→ CRITICAL: Enable 'Full (strict)' mode immediately%b\n" "$RED" "$NC"
+      printf "  Go to: CloudFlare Dashboard → SSL/TLS → Overview → Full (strict)\n"
+      ;;
+    *)
+      printf "  Current mode: %b%s%b (unknown)\n" "$YELLOW" "$SSL_MODE" "$NC"
+      ;;
+  esac
+fi
+printf "\n"
+
+# Step 4: Check if DNS record exists
+printf "4. Checking if DNS record exists for %s...\n" "$DOMAIN"
 if [ -n "$CF_API_TOKEN" ]; then
   RECORD_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$DOMAIN&type=CNAME" \
     -H "$AUTH_HEADER" \
@@ -141,46 +186,46 @@ if [ -n "$RECORD_ID" ]; then
     UPDATE_REASONS="${UPDATE_REASONS}- Target hostname mismatch\n"
   fi
 
-  # Check if proxied is disabled (we want DNS-only mode)
-  if [ "$EXISTING_PROXIED" != "false" ]; then
+  # Check if proxied is disabled (we want proxy mode enabled)
+  if [ "$EXISTING_PROXIED" != "true" ]; then
     NEEDS_UPDATE=1
-    UPDATE_REASONS="${UPDATE_REASONS}- Proxied mode is enabled (needs to be disabled for DNS-only access)\n"
+    UPDATE_REASONS="${UPDATE_REASONS}- Proxy mode is disabled (needs to be enabled for DDoS/WAF protection)\n"
   fi
 
   if [ $NEEDS_UPDATE -eq 1 ]; then
     printf "  %b⚠ Record needs updates:%b\n" "$YELLOW" "$NC"
     printf "%b" "$UPDATE_REASONS"
     printf "\n"
-    printf "4. Updating DNS record...\n"
+    printf "5. Updating DNS record...\n"
 
     if [ -n "$CF_API_TOKEN" ]; then
       UPDATE_RESPONSE=$(curl -s -X PATCH "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
         -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
-        --data "{\"content\":\"$LB_HOSTNAME\",\"proxied\":false}")
+        --data "{\"content\":\"$LB_HOSTNAME\",\"proxied\":true}")
     else
       UPDATE_RESPONSE=$(curl -s -X PATCH "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
         -H "$AUTH_HEADER_1" \
         -H "$AUTH_HEADER_2" \
         -H "Content-Type: application/json" \
-        --data "{\"content\":\"$LB_HOSTNAME\",\"proxied\":false}")
+        --data "{\"content\":\"$LB_HOSTNAME\",\"proxied\":true}")
     fi
 
     if echo "$UPDATE_RESPONSE" | grep -q '"success":true'; then
       printf "  %b✓ DNS record updated successfully%b\n" "$GREEN" "$NC"
-      printf "  %b✓ CloudFlare DNS-only mode - traffic goes directly to ALB%b\n" "$GREEN" "$NC"
+      printf "  %b✓ CloudFlare proxy mode enabled - DDoS/WAF protection active%b\n" "$GREEN" "$NC"
     else
       printf "  %b✗ Failed to update DNS record%b\n" "$RED" "$NC"
       printf "  Response: %s\n" "$UPDATE_RESPONSE"
       exit 1
     fi
   else
-    printf "  %b✓ Record is properly configured (correct target + DNS-only mode)%b\n" "$GREEN" "$NC"
+    printf "  %b✓ Record is properly configured (correct target + proxy mode enabled)%b\n" "$GREEN" "$NC"
   fi
 else
   printf "  %b⚠ DNS record does not exist%b\n" "$YELLOW" "$NC"
   printf "\n"
-  printf "4. Creating DNS record...\n"
+  printf "5. Creating DNS record...\n"
 
   if [ -n "$CF_API_TOKEN" ]; then
     CREATE_RESPONSE=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
@@ -191,7 +236,7 @@ else
         \"name\":\"$RECORD_NAME\",
         \"content\":\"$LB_HOSTNAME\",
         \"ttl\":1,
-        \"proxied\":false
+        \"proxied\":true
       }")
   else
     CREATE_RESPONSE=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
@@ -203,7 +248,7 @@ else
         \"name\":\"$RECORD_NAME\",
         \"content\":\"$LB_HOSTNAME\",
         \"ttl\":1,
-        \"proxied\":false
+        \"proxied\":true
       }")
   fi
 
@@ -220,8 +265,8 @@ fi
 
 printf "\n"
 
-# Step 4: Verify DNS resolution (with retry)
-printf "5. Verifying DNS resolution...\n"
+# Step 6: Verify DNS resolution (with retry)
+printf "6. Verifying DNS resolution...\n"
 
 # Check local DNS
 DNS_RESULT=$(dig +short "$DOMAIN" 2>/dev/null | tail -1 || true)
@@ -252,8 +297,8 @@ fi
 
 printf "\n"
 
-# Step 5: Check local DNS cache
-printf "6. Verifying local DNS cache...\n"
+# Step 7: Check local DNS cache
+printf "7. Verifying local DNS cache...\n"
 CNAME_RESULT=$(dig +short CNAME "$DOMAIN" 2>/dev/null || true)
 
 if [ -n "$CNAME_RESULT" ]; then
@@ -280,8 +325,8 @@ fi
 
 printf "\n"
 
-# Step 7: Test HTTPS connectivity
-printf "7. Testing HTTPS connectivity...\n"
+# Step 8: Test HTTPS connectivity
+printf "8. Testing HTTPS connectivity...\n"
 
 # Get IP to test with
 TEST_IP=$(dig @1.1.1.1 +short "$DOMAIN" 2>/dev/null | tail -1 || true)
