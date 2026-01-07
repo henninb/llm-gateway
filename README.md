@@ -94,7 +94,6 @@ llm-gateway/
 - **`.gitignore`**: Protects sensitive files including `.secrets`, `*.pem` (CloudFlare certificates), and Terraform state
 - **`Makefile`**: Comprehensive automation for all operations (run `make help` to see all commands)
 - **`requirements.txt`**: Python dependencies for LiteLLM patches
-- **`requirements-proxy.txt`**: Dependencies for legacy proxy solution
 
 **Documentation:**
 - **`README.md`**: This file - comprehensive project documentation
@@ -104,9 +103,8 @@ llm-gateway/
 
 **Legacy/Reference:**
 - **`proxy.py`**: Legacy proxy solution for guardrail error handling (superseded by LiteLLM passthrough mode)
-- **`Dockerfile.proxy`**: Docker configuration for legacy proxy
 
-**Note:** The project now uses LiteLLM's native `on_flagged_action: "passthrough"` mode for guardrail error handling, making the proxy solution unnecessary. The proxy files are kept for reference and potential future use cases.
+**Note:** The project now uses LiteLLM's native `on_flagged_action: "passthrough"` mode for guardrail error handling, making the legacy proxy solution unnecessary. The proxy.py file is kept for reference.
 
 ## Architecture
 
