@@ -292,7 +292,7 @@ make eks-apply            # Deploy applications to EKS
 make eks-destroy          # Destroy EKS deployment
 make eks-secrets-populate # Populate AWS Secrets Manager with API keys
 make eks-port-forward     # Forward LiteLLM from EKS to localhost:4000
-make eks-verify-cloudflare-dns # Auto-setup/verify CloudFlare DNS in DNS-only mode (recommended)
+make eks-verify-cloudflare-dns # Auto-setup/verify CloudFlare DNS (currently in proxy mode)
 
 # EKS Security Group Management (ISP and CloudFlare)
 make eks-list-ips                                             # List all IPs in both security groups
@@ -466,7 +466,8 @@ kubectl get ingress openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.
    - Type: CNAME
    - Name: openwebui (or your subdomain)
    - Target: [ALB DNS from step 1]
-   - Proxy status: DNS only (gray cloud icon - `proxied: false`)
+   - Proxy status: Proxied (orange cloud icon - `proxied: true`)
+   - **Note:** Requires CloudFlare Origin Certificate - see CLOUDFLARE-CERT.md
 
 3. Verify configuration:
 ```bash
@@ -487,43 +488,53 @@ curl -I https://openwebui.bhenning.com
 ```
 
 **Expected results:**
-- DNS should resolve to the ALB hostname (k8s-llmgatew-...)
-- HTTPS should return HTTP 200 OK
+- DNS should resolve to CloudFlare IPs (104.x.x.x, 172.x.x.x)
+- HTTPS should return HTTP 200 OK with CloudFlare headers (cf-ray)
 
-#### (Optional) CloudFlare Proxy Mode
+#### CloudFlare Proxy Mode (Currently Enabled)
 
-Currently, CloudFlare is configured in **DNS-only mode** (`proxied: false`), which means:
-- DNS resolution only - traffic goes directly to your ALB
-- No CloudFlare DDoS protection or WAF
-- Simpler architecture with direct ALB access
+CloudFlare is currently configured in **proxy mode** (`proxied: true`), which provides:
+- ✅ **DDoS protection and WAF** - CloudFlare's Layer 7 attack mitigation
+- ✅ **Edge caching** - Static assets cached at 300+ data centers worldwide
+- ✅ **Bot detection and rate limiting** - Automatic bot management
+- ✅ **Geo-restriction capabilities** - Control access by country/region
+- ✅ **Hidden origin** - ALB hostname not exposed to public
+- ✅ **HTTP/3 and Brotli compression** - Modern protocol support
+- ✅ **SSL/TLS encryption** - End-to-end encryption with CloudFlare Origin Certificates
 
-**To enable CloudFlare proxy mode for additional security:**
+**Current Architecture:**
+```
+Client → CloudFlare Edge (Universal SSL) → ALB (Origin Certificate) → EKS Pods
+```
 
-See `CLOUDFLARE-CERT.md` for complete step-by-step instructions on:
-1. Generating CloudFlare Origin Certificates (15-year validity)
-2. Importing certificates to AWS ACM
-3. **⚠️ CRITICAL:** Updating BOTH security groups (ALB + worker node)
-4. Configuring CloudFlare SSL/TLS mode to "Full (strict)"
-5. Enabling `proxied: true` for CloudFlare protection
-6. Verifying the setup works
+**Active Configuration:**
+- **Certificate:** CloudFlare Origin Certificate (15-year validity)
+- **Security Groups:** CloudFlare security group (allows CloudFlare IP ranges)
+- **SSL/TLS Mode:** Full (strict) - validates origin certificate
+- **Proxy Status:** Enabled (`proxied: true`)
 
-**Required Changes:**
-- **Certificate:** Switch from AWS-issued ACM certificate to CloudFlare Origin Certificate
-- **Security Groups:** Update both `openwebui.tf` (ALB) and `isp-security-group.tf` (worker nodes) to use CloudFlare IPs
-- **CloudFlare Settings:** Enable proxy mode and set SSL/TLS to "Full (strict)"
+**To disable CloudFlare proxy mode (switch to DNS-only):**
 
-**CloudFlare proxy mode benefits:**
-- ✅ DDoS protection and WAF
-- ✅ Edge caching for static assets (300+ data centers)
-- ✅ Bot detection and rate limiting
-- ✅ Geo-restriction capabilities
-- ✅ Hides your origin ALB hostname
-- ✅ HTTP/3 and Brotli compression support
+If you need to switch back to direct ALB access without CloudFlare protection:
+
+1. **Switch security groups** back to ISP-restricted mode:
+   - Update `terraform/eks/openwebui.tf` line 229: use `aws_security_group.isp_restricted.id`
+   - Update `terraform/eks/isp-security-group.tf` line 65: use `aws_security_group.isp_restricted.id`
+   - Apply changes: `cd terraform/eks && terraform apply`
+
+2. **Disable CloudFlare proxy** in CloudFlare Dashboard:
+   - Go to DNS → Records
+   - Click on openwebui CNAME record
+   - Disable proxy (gray cloud icon)
+
+3. **Optional:** Switch back to AWS-issued ACM certificate (not required but cleaner)
+
+See `CLOUDFLARE-CERT.md` for complete setup documentation if you need to set this up from scratch.
 
 **Important Notes:**
-- CloudFlare proxy requires CloudFlare Origin Certificates (ALB hostname mismatch with standard certificates)
+- CloudFlare proxy requires CloudFlare Origin Certificates (ALB hostname doesn't match domain)
 - Must update **both** ALB and worker node security groups or health checks will fail (HTTP 522 errors)
-- Allow 30-60 seconds for CloudFlare edge propagation after enabling proxy mode
+- Allow 30-60 seconds for CloudFlare edge propagation when toggling proxy mode
 - See `CLOUDFLARE-CERT.md` troubleshooting section for common issues
 
 ## Configuration
@@ -1039,8 +1050,10 @@ This command:
 **Automatic actions:**
 - ✅ Creates CNAME → ALB hostname
 - ✅ Sets TTL to auto (1 = automatic)
-- ✅ Configures CloudFlare in DNS-only mode (`proxied: false`)
+- ✅ Preserves current proxy mode setting (DNS setup only, does not change proxy status)
 - ✅ Validates with both local DNS and CloudFlare DNS (1.1.1.1)
+
+**Note:** This command manages DNS records only. CloudFlare proxy mode (`proxied: true/false`) is configured separately. Currently, proxy mode is **enabled** for production use. See CloudFlare Proxy Mode section above for current configuration.
 
 **Requirements:**
 - `CF_API_KEY` and `CF_EMAIL` in `.secrets` file
