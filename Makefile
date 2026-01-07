@@ -247,3 +247,85 @@ eks-verify-cloudflare-dns: ## Verify/setup CloudFlare DNS (auto-sources .secrets
 	else \
 		./tools/setup-cloudflare-dns.sh $(DOMAIN); \
 	fi
+
+eks-allow-ip: ## Add IP/CIDR to ALB security group (Usage: make eks-allow-ip IP=1.2.3.4/32 DESC="Office")
+	@if [ -z "$(IP)" ]; then \
+		echo "Error: IP parameter is required"; \
+		echo "Usage: make eks-allow-ip IP=1.2.3.4/32 DESC=\"Optional description\""; \
+		exit 1; \
+	fi; \
+	SG_ID=$$(cd terraform/eks && terraform output -raw isp_security_group_id 2>/dev/null); \
+	if [ -z "$$SG_ID" ]; then \
+		echo "Error: Could not find ISP security group ID"; \
+		echo "Make sure terraform/eks is initialized and applied"; \
+		exit 1; \
+	fi; \
+	IP_CIDR="$(IP)"; \
+	if ! echo "$$IP_CIDR" | grep -q "/"; then \
+		IP_CIDR="$$IP_CIDR/32"; \
+		echo "Note: Added /32 to IP address: $$IP_CIDR"; \
+	fi; \
+	DESC="$(DESC)"; \
+	if [ -z "$$DESC" ]; then \
+		DESC="Additional IP access - $$IP_CIDR"; \
+	fi; \
+	echo "Adding IP $$IP_CIDR to security group $$SG_ID..."; \
+	if aws ec2 authorize-security-group-ingress \
+		--group-id $$SG_ID \
+		--ip-permissions IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges="[{CidrIp=$$IP_CIDR,Description=\"$$DESC\"}]" \
+		--region $(AWS_REGION) 2>&1; then \
+		echo "✓ Successfully added IP $$IP_CIDR to ALB security group"; \
+		echo ""; \
+		echo "Current HTTPS rules:"; \
+		aws ec2 describe-security-groups --group-ids $$SG_ID --region $(AWS_REGION) \
+			--query 'SecurityGroups[0].IpPermissions[?FromPort==`443`].IpRanges[*].[CidrIp,Description]' \
+			--output table; \
+	else \
+		echo "Note: Rule may already exist or there was an error"; \
+	fi
+
+eks-revoke-ip: ## Remove IP/CIDR from ALB security group (Usage: make eks-revoke-ip IP=1.2.3.4/32)
+	@if [ -z "$(IP)" ]; then \
+		echo "Error: IP parameter is required"; \
+		echo "Usage: make eks-revoke-ip IP=1.2.3.4/32"; \
+		exit 1; \
+	fi; \
+	SG_ID=$$(cd terraform/eks && terraform output -raw isp_security_group_id 2>/dev/null); \
+	if [ -z "$$SG_ID" ]; then \
+		echo "Error: Could not find ISP security group ID"; \
+		echo "Make sure terraform/eks is initialized and applied"; \
+		exit 1; \
+	fi; \
+	IP_CIDR="$(IP)"; \
+	if ! echo "$$IP_CIDR" | grep -q "/"; then \
+		IP_CIDR="$$IP_CIDR/32"; \
+		echo "Note: Added /32 to IP address: $$IP_CIDR"; \
+	fi; \
+	echo "Removing IP $$IP_CIDR from security group $$SG_ID..."; \
+	if aws ec2 revoke-security-group-ingress \
+		--group-id $$SG_ID \
+		--ip-permissions IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges="[{CidrIp=$$IP_CIDR}]" \
+		--region $(AWS_REGION) 2>&1; then \
+		echo "✓ Successfully removed IP $$IP_CIDR from ALB security group"; \
+		echo ""; \
+		echo "Current HTTPS rules:"; \
+		aws ec2 describe-security-groups --group-ids $$SG_ID --region $(AWS_REGION) \
+			--query 'SecurityGroups[0].IpPermissions[?FromPort==`443`].IpRanges[*].[CidrIp,Description]' \
+			--output table; \
+	else \
+		echo "✗ Failed to remove IP $$IP_CIDR (may not exist)"; \
+		exit 1; \
+	fi
+
+eks-list-ips: ## List all IPs/CIDRs allowed in ALB security group
+	@SG_ID=$$(cd terraform/eks && terraform output -raw isp_security_group_id 2>/dev/null); \
+	if [ -z "$$SG_ID" ]; then \
+		echo "Error: Could not find ISP security group ID"; \
+		echo "Make sure terraform/eks is initialized and applied"; \
+		exit 1; \
+	fi; \
+	echo "HTTPS (443) Access Rules for ALB Security Group ($$SG_ID):"; \
+	echo ""; \
+	aws ec2 describe-security-groups --group-ids $$SG_ID --region $(AWS_REGION) \
+		--query 'SecurityGroups[0].IpPermissions[?FromPort==`443`].IpRanges[*].[CidrIp,Description]' \
+		--output table

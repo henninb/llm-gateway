@@ -38,6 +38,9 @@ check_command "aws" "--version" "aws"
 check_command "terraform" "--version" "terraform"
 check_command "docker" "--version" "docker"
 check_command "kubectl" "version --client" "kubectl"
+if ! check_command "helm" "version --short" "helm"; then
+  echo "  Helm is required to install the AWS Load Balancer Controller"
+fi
 check_command "python3" "--version" "python3"
 
 echo ""
@@ -97,6 +100,7 @@ else
   echo "  terraform: https://www.terraform.io/downloads"
   echo "  docker:    https://docs.docker.com/get-docker/"
   echo "  kubectl:   https://kubernetes.io/docs/tasks/tools/"
+  echo "  helm:      https://helm.sh/docs/intro/install/ (required for AWS Load Balancer Controller)"
   echo "  python3:   https://www.python.org/downloads/"
   echo ""
   echo "Optional (recommended):"

@@ -63,13 +63,22 @@ fi
 printf "  Authentication: %b%s%b\n" "$GREEN" "$AUTH_TYPE" "$NC"
 printf "\n"
 
-# Step 1: Get LoadBalancer hostname from Kubernetes
+# Step 1: Get LoadBalancer hostname from Kubernetes (try Ingress first, then Service)
 printf "1. Getting LoadBalancer hostname from Kubernetes...\n"
-LB_HOSTNAME=$(kubectl get svc openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+
+# Try to get from Ingress first (ALB)
+LB_HOSTNAME=$(kubectl get ingress openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+
+# If not found in Ingress, try Service (NLB)
+if [ -z "$LB_HOSTNAME" ]; then
+  LB_HOSTNAME=$(kubectl get svc openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+fi
 
 if [ -z "$LB_HOSTNAME" ]; then
   printf "  %b✗ Error: Could not get LoadBalancer hostname%b\n" "$RED" "$NC"
-  printf "  Make sure the openwebui service is deployed: kubectl get svc -n llm-gateway\n"
+  printf "  Make sure the openwebui ingress or service is deployed:\n"
+  printf "    kubectl get ingress -n llm-gateway\n"
+  printf "    kubectl get svc -n llm-gateway\n"
   exit 1
 fi
 
@@ -115,40 +124,58 @@ fi
 
 RECORD_ID=$(echo "$RECORD_RESPONSE" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
 EXISTING_CONTENT=$(echo "$RECORD_RESPONSE" | grep -o '"content":"[^"]*' | head -1 | cut -d'"' -f4)
+EXISTING_PROXIED=$(echo "$RECORD_RESPONSE" | grep -o '"proxied":[^,}]*' | head -1 | cut -d':' -f2)
 
 if [ -n "$RECORD_ID" ]; then
   printf "  %b✓ DNS record exists%b\n" "$GREEN" "$NC"
   printf "  Record ID: %s\n" "$RECORD_ID"
   printf "  Current target: %s\n" "$EXISTING_CONTENT"
+  printf "  Proxied (CloudFlare protection): %s\n" "$EXISTING_PROXIED"
+
+  NEEDS_UPDATE=0
+  UPDATE_REASONS=""
 
   # Check if it points to the correct target
-  if [ "$EXISTING_CONTENT" = "$LB_HOSTNAME" ]; then
-    printf "  %b✓ Record points to correct LoadBalancer%b\n" "$GREEN" "$NC"
-  else
-    printf "  %b⚠ Record points to different target%b\n" "$YELLOW" "$NC"
+  if [ "$EXISTING_CONTENT" != "$LB_HOSTNAME" ]; then
+    NEEDS_UPDATE=1
+    UPDATE_REASONS="${UPDATE_REASONS}- Target hostname mismatch\n"
+  fi
+
+  # Check if proxied is disabled (we want DNS-only mode)
+  if [ "$EXISTING_PROXIED" != "false" ]; then
+    NEEDS_UPDATE=1
+    UPDATE_REASONS="${UPDATE_REASONS}- Proxied mode is enabled (needs to be disabled for DNS-only access)\n"
+  fi
+
+  if [ $NEEDS_UPDATE -eq 1 ]; then
+    printf "  %b⚠ Record needs updates:%b\n" "$YELLOW" "$NC"
+    printf "%b" "$UPDATE_REASONS"
     printf "\n"
-    printf "4. Updating DNS record to point to %s...\n" "$LB_HOSTNAME"
+    printf "4. Updating DNS record...\n"
 
     if [ -n "$CF_API_TOKEN" ]; then
       UPDATE_RESPONSE=$(curl -s -X PATCH "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
         -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
-        --data "{\"content\":\"$LB_HOSTNAME\"}")
+        --data "{\"content\":\"$LB_HOSTNAME\",\"proxied\":false}")
     else
       UPDATE_RESPONSE=$(curl -s -X PATCH "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
         -H "$AUTH_HEADER_1" \
         -H "$AUTH_HEADER_2" \
         -H "Content-Type: application/json" \
-        --data "{\"content\":\"$LB_HOSTNAME\"}")
+        --data "{\"content\":\"$LB_HOSTNAME\",\"proxied\":false}")
     fi
 
     if echo "$UPDATE_RESPONSE" | grep -q '"success":true'; then
       printf "  %b✓ DNS record updated successfully%b\n" "$GREEN" "$NC"
+      printf "  %b✓ CloudFlare DNS-only mode - traffic goes directly to ALB%b\n" "$GREEN" "$NC"
     else
       printf "  %b✗ Failed to update DNS record%b\n" "$RED" "$NC"
       printf "  Response: %s\n" "$UPDATE_RESPONSE"
       exit 1
     fi
+  else
+    printf "  %b✓ Record is properly configured (correct target + DNS-only mode)%b\n" "$GREEN" "$NC"
   fi
 else
   printf "  %b⚠ DNS record does not exist%b\n" "$YELLOW" "$NC"
@@ -210,9 +237,14 @@ else
   if [ -n "$CF_DNS_RESULT" ]; then
     printf "  CloudFlare DNS: %b✓ Resolves to: %s%b\n" "$GREEN" "$CF_DNS_RESULT" "$NC"
     printf "\n"
-    printf "  %b→ Your local DNS cache is stale. Clear it with:%b\n" "$YELLOW" "$NC"
-    printf "    sudo systemctl restart NetworkManager\n"
-    printf "    # or if using systemd-resolved: sudo resolvectl flush-caches\n"
+    printf "  %b→ Your local DNS cache is stale. To refresh, copy and run:%b\n" "$YELLOW" "$NC"
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager; then
+      printf "    sudo systemctl restart NetworkManager\n"
+    elif command -v resolvectl >/dev/null 2>&1; then
+      printf "    sudo resolvectl flush-caches\n"
+    else
+      printf "    # Manually restart your DNS service\n"
+    fi
   else
     printf "  CloudFlare DNS: %b⚠ Not yet propagated (wait a few minutes)%b\n" "$YELLOW" "$NC"
   fi
@@ -220,33 +252,29 @@ fi
 
 printf "\n"
 
-# Step 5: Check CNAME
-printf "6. Checking CNAME record...\n"
+# Step 5: Check local DNS cache
+printf "6. Verifying local DNS cache...\n"
 CNAME_RESULT=$(dig +short CNAME "$DOMAIN" 2>/dev/null || true)
 
 if [ -n "$CNAME_RESULT" ]; then
-  printf "  CNAME: %s -> %s\n" "$DOMAIN" "$CNAME_RESULT"
+  printf "  Local cache CNAME: %s -> %s\n" "$DOMAIN" "$CNAME_RESULT"
   if echo "$CNAME_RESULT" | grep -q "$LB_HOSTNAME"; then
-    printf "  %b✓ CNAME points to correct LoadBalancer%b\n" "$GREEN" "$NC"
+    printf "  %b✓ Local DNS cache is up to date%b\n" "$GREEN" "$NC"
   else
-    printf "  %b⚠ CNAME points to different target%b\n" "$YELLOW" "$NC"
+    printf "  %b⚠ Local DNS cache is stale (CloudFlare record was updated above)%b\n" "$YELLOW" "$NC"
     printf "\n"
-    printf "  %b→ Clearing local DNS cache...%b\n" "$YELLOW" "$NC"
+    printf "  %b→ To refresh your local DNS cache, copy and run:%b\n" "$YELLOW" "$NC"
     if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager; then
-      printf "  Running: sudo systemctl restart NetworkManager\n"
-      sudo systemctl restart NetworkManager
-      printf "  %b✓ NetworkManager restarted%b\n" "$GREEN" "$NC"
+      printf "    sudo systemctl restart NetworkManager\n"
     elif command -v resolvectl >/dev/null 2>&1; then
-      printf "  Running: sudo resolvectl flush-caches\n"
-      sudo resolvectl flush-caches
-      printf "  %b✓ DNS cache flushed%b\n" "$GREEN" "$NC"
+      printf "    sudo resolvectl flush-caches\n"
     else
       printf "  %b⚠ Could not detect DNS cache service%b\n" "$YELLOW" "$NC"
       printf "  Please manually restart your DNS service\n"
     fi
   fi
 else
-  printf "  %b⚠ No CNAME record found in DNS yet%b\n" "$YELLOW" "$NC"
+  printf "  %b⚠ No CNAME record found in local DNS cache yet%b\n" "$YELLOW" "$NC"
   printf "  This is normal - DNS propagation can take a few minutes\n"
 fi
 

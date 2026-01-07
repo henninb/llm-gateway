@@ -31,7 +31,7 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 ```
 
 **Key Differences:**
-- **EKS**: Exposed via NLB with HTTPS and CloudFlare restriction
+- **EKS**: Exposed via ALB with HTTPS and CloudFlare DNS
 - **Local**: Direct localhost access (no external exposure)
 - **Both**: Same architecture - LiteLLM with native passthrough guardrails
 
@@ -39,9 +39,10 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 
 ### Security
 - **Zero-Trust Networking**: Kubernetes NetworkPolicies enforce pod-to-pod isolation
+- **ISP-Based Access Control**: ALB security groups restrict HTTPS access to authorized IP ranges (FREE)
 - **IRSA (IAM Roles for Service Accounts)**: AWS service authentication without static credentials
 - **Non-Root Containers**: All containers run as unprivileged users (UID 1000)
-- **HTTPS/TLS**: ACM certificate with NLB SSL termination
+- **HTTPS/TLS**: ACM certificate with ALB SSL termination
 - **AWS Metadata Service Blocking**: Prevents SSRF attacks
 - **Rate Limiting**: Built-in request throttling (ENABLE_RATE_LIMIT=true)
 - **Input Validation**: Parameter sanitization and validation (LITELLM_DROP_PARAMS=true)
@@ -68,7 +69,7 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 - **Persistent Storage**: User data and conversations stored in EBS volumes
 - **Auto-Scaling**: EKS node group scales based on demand
 - **Health Checks**: Kubernetes liveness/readiness probes
-- **Automated DNS Management**: CloudFlare API integration for DNS setup
+- **Automated DNS Management**: CloudFlare API integration for DNS-only setup
 
 ## Prerequisites
 
@@ -185,9 +186,7 @@ make eks-apply            # Deploy applications to EKS
 make eks-destroy          # Destroy EKS deployment
 make eks-secrets-populate # Populate AWS Secrets Manager with API keys
 make eks-port-forward     # Forward LiteLLM from EKS to localhost:4000
-make eks-verify-cloudflare # Verify CloudFlare IP ranges in NLB security group
-make eks-verify-cloudflare-dns # Auto-setup/verify CloudFlare DNS (recommended)
-make eks-test-cloudflare-restriction # Test NLB only accepts CloudFlare IPs
+make eks-verify-cloudflare-dns # Auto-setup/verify CloudFlare DNS in DNS-only mode (recommended)
 ```
 
 ## AWS EKS Deployment
@@ -309,16 +308,16 @@ CF_EMAIL=your-cloudflare-email
 
 If you prefer manual DNS configuration:
 
-1. Get the LoadBalancer DNS name:
+1. Get the ALB DNS name:
 ```bash
-kubectl get svc openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+kubectl get ingress openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 ```
 
 2. Create a CNAME record in CloudFlare:
    - Type: CNAME
    - Name: openwebui (or your subdomain)
-   - Target: [LoadBalancer DNS from step 1]
-   - Proxy status: DNS only (gray cloud icon)
+   - Target: [ALB DNS from step 1]
+   - Proxy status: DNS only (gray cloud icon - `proxied: false`)
 
 3. Verify configuration:
 ```bash
@@ -326,49 +325,44 @@ dig +short openwebui.bhenning.com
 curl -I https://openwebui.bhenning.com
 ```
 
-### Step 7: Verify CloudFlare Security
+### Step 7: Verify DNS and HTTPS
 
-The NLB is automatically configured with a security group that **ONLY allows CloudFlare IP ranges**, preventing direct access from non-CloudFlare sources.
-
-#### Verify Security Configuration
-
-Test that the NLB properly restricts access to CloudFlare IPs only:
+Verify that your domain resolves and HTTPS works:
 
 ```bash
-# Test that non-CloudFlare IPs cannot access NLB directly
-make eks-test-cloudflare-restriction
+# Verify DNS resolves to ALB
+dig +short openwebui.bhenning.com
+
+# Test HTTPS connectivity
+curl -I https://openwebui.bhenning.com
 ```
 
-This test will:
-1. Check your public IP address
-2. Verify it's not in CloudFlare IP ranges
-3. Attempt direct connection to NLB (should timeout/fail)
-4. Verify only CloudFlare security group is attached
-5. Confirm access through domain works (via CloudFlare)
+**Expected results:**
+- DNS should resolve to the ALB hostname (k8s-llmgatew-...)
+- HTTPS should return HTTP 200 OK
 
-**Expected result**: `✅ SUCCESS: NLB is properly restricted to CloudFlare IPs`
+#### (Optional) CloudFlare Proxy Mode
 
-#### Keep CloudFlare IP Ranges Updated
+Currently, CloudFlare is configured in **DNS-only mode** (`proxied: false`), which means:
+- DNS resolution only - traffic goes directly to your ALB
+- No CloudFlare DDoS protection or WAF
+- Simpler architecture with direct ALB access
 
-CloudFlare occasionally updates their IP ranges. Verify and update monthly:
+**To enable CloudFlare proxy mode for additional security:**
 
-```bash
-# Check if CloudFlare IP ranges are current
-make eks-verify-cloudflare
+See `CLOUDFLARE-CERT.md` for instructions on:
+1. Generating CloudFlare Origin Certificates
+2. Importing certificates to AWS ACM
+3. Enabling `proxied: true` for CloudFlare protection
 
-# If outdated, update with:
-make eks-apply
-```
-
-#### (Optional) Additional CloudFlare Security
-
-Additional security features available with CloudFlare:
-- ✅ Geo-restriction (US-only access with HTTP 403 for blocked users)
+**CloudFlare proxy mode benefits:**
 - ✅ DDoS protection and WAF
-- ✅ CloudFlare proxy mode (orange cloud)
-- ✅ No additional AWS costs (uses CloudFlare free/pro plan)
+- ✅ Edge caching for static assets
+- ✅ Bot detection and rate limiting
+- ✅ Geo-restriction capabilities
+- ✅ Hides your origin ALB hostname
 
-To enable these features, configure CloudFlare firewall rules and enable proxy mode (orange cloud) in your DNS settings.
+**Note:** CloudFlare proxy requires CloudFlare Origin Certificates due to ALB hostname mismatch. See documentation for details.
 
 ## Configuration
 
@@ -480,7 +474,7 @@ Key variables in `terraform/eks/terraform.tfvars`:
 
 ### HTTPS/TLS
 - ACM certificate management
-- NLB SSL termination
+- ALB SSL termination with TLS 1.3
 - Automatic certificate renewal
 
 ### Rate Limiting & Input Validation
@@ -496,10 +490,10 @@ Estimated monthly costs (us-east-1, default configuration with 1 node):
 - EC2 SPOT Instances (1x t3.medium): ~$8-15
 - NAT Gateway: ~$32
 - EBS Volumes: ~$8
-- Network Load Balancer: ~$16
+- Application Load Balancer: ~$16-22
 - Data Transfer: Variable
 
-**Total: ~$137-144/month**
+**Total: ~$137-150/month**
 
 Cost optimizations implemented:
 - Single NAT gateway vs multi-AZ (~$32/month savings)
@@ -823,9 +817,9 @@ This command:
 6. **Tests** HTTPS connectivity
 
 **Automatic actions:**
-- ✅ Creates CNAME → LoadBalancer hostname
+- ✅ Creates CNAME → ALB hostname
 - ✅ Sets TTL to auto (1 = automatic)
-- ✅ Disables CloudFlare proxy (DNS only mode)
+- ✅ Configures CloudFlare in DNS-only mode (`proxied: false`)
 - ✅ Validates with both local DNS and CloudFlare DNS (1.1.1.1)
 
 **Requirements:**
@@ -837,8 +831,8 @@ This command:
 For manual verification without CloudFlare API:
 
 ```bash
-# Check LoadBalancer hostname
-kubectl get svc openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+# Check ALB hostname
+kubectl get ingress openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 
 # Verify DNS resolves
 dig +short openwebui.bhenning.com
@@ -847,55 +841,31 @@ dig +short openwebui.bhenning.com
 curl -I https://openwebui.bhenning.com
 ```
 
-### CloudFlare Security Verification
+### ALB Configuration
 
-The NLB is configured with a security group that **only accepts traffic from CloudFlare IP ranges**. This prevents direct access bypassing CloudFlare.
+The ALB is configured with:
+- **HTTPS listener on port 443** with ACM certificate
+- **TLS 1.3 security policy** (ELBSecurityPolicy-TLS13-1-2-2021-06)
+- **Target type: IP** - Routes directly to pod IPs
+- **Health checks** - Validates pod availability before routing traffic
 
-#### Test Access Restriction
-
-Verify that the NLB blocks non-CloudFlare IPs:
-
-```bash
-# Test that NLB only accepts CloudFlare IPs
-make eks-test-cloudflare-restriction
-```
-
-This test:
-1. **Identifies your public IP** address
-2. **Checks** if IP is in CloudFlare ranges
-3. **Attempts** direct connection to NLB (should fail/timeout)
-4. **Verifies** only CloudFlare security group is attached
-5. **Confirms** access through domain works (via CloudFlare)
-
-**Expected result**: `✅ SUCCESS: NLB is properly restricted to CloudFlare IPs`
-
-If the test fails, it indicates:
-- Your IP is actually in CloudFlare ranges (inconclusive)
-- Security group allows additional IPs (configuration issue)
-- VPC default security group is attached (needs investigation)
-
-#### Verify IP Ranges Are Current
-
-CloudFlare occasionally updates their IP ranges. Verify monthly:
+To view ALB configuration:
 
 ```bash
-# Check CloudFlare IP ranges are up-to-date
-make eks-verify-cloudflare
+# Get ALB ARN
+ALB_ARN=$(aws elbv2 describe-load-balancers \
+  --query 'LoadBalancers[?contains(LoadBalancerName, `k8s-llmgatew-openwebu`)].LoadBalancerArn' \
+  --output text)
+
+# View listeners
+aws elbv2 describe-listeners --load-balancer-arn $ALB_ARN
+
+# View target group health
+aws elbv2 describe-target-health \
+  --target-group-arn $(aws elbv2 describe-target-groups \
+    --query 'TargetGroups[?contains(TargetGroupName, `k8s-llmgatew-openweb`)].TargetGroupArn' \
+    --output text)
 ```
-
-This command:
-1. Fetches current CloudFlare IPv4 and IPv6 ranges from cloudflare.com
-2. Compares with configured security group rules (count and sample check)
-3. Validates specific IP ranges are present
-4. Provides update instructions if outdated
-
-**If ranges are outdated:**
-```bash
-# Update security group with latest CloudFlare IPs
-make eks-apply
-```
-
-**Recommendation**: Run `make eks-verify-cloudflare` monthly, as CloudFlare updates their IP ranges periodically.
 
 ## Troubleshooting
 
@@ -933,16 +903,18 @@ dig +short openwebui.bhenning.com
 
 #### Access Site Despite DNS Issues
 
-You can access the site directly using the LoadBalancer hostname:
+You can access the site directly using the ALB hostname:
 
 ```bash
-# Get LoadBalancer hostname
-LB=$(kubectl get svc openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+# Get ALB hostname
+ALB=$(kubectl get ingress openwebui -n llm-gateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
 
-# Access directly
-curl https://$LB
-# Or in browser: https://a9d0ae51cec214c1e83976f219737243-058ee2da301031a2.elb.us-east-1.amazonaws.com
+# Access directly (note: certificate will show hostname mismatch warning)
+curl -k https://$ALB
+# Or in browser: https://k8s-llmgatew-openwebu-5d1360aa5a-1101013781.us-east-1.elb.amazonaws.com
 ```
+
+**Note:** Direct ALB access will show a certificate warning because the ACM certificate is for your domain (openwebui.bhenning.com), not the ALB hostname.
 
 ### Check Pod Status
 ```bash
@@ -972,8 +944,14 @@ kubectl get daemonset -n kube-system aws-node -o yaml | grep -A 5 "ENABLE_NETWOR
 # Check certificate
 openssl s_client -connect openwebui.bhenning.com:443 -servername openwebui.bhenning.com
 
-# Check LoadBalancer
-kubectl describe svc openwebui -n llm-gateway
+# Check Ingress
+kubectl describe ingress openwebui -n llm-gateway
+
+# Check ALB listener certificate
+ALB_ARN=$(aws elbv2 describe-load-balancers \
+  --query 'LoadBalancers[?contains(LoadBalancerName, `k8s-llmgatew-openwebu`)].LoadBalancerArn' \
+  --output text)
+aws elbv2 describe-listeners --load-balancer-arn $ALB_ARN
 ```
 
 ### IRSA Issues

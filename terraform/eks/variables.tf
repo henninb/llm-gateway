@@ -17,6 +17,12 @@ variable "cluster_name" {
   default     = "llm-gateway-eks"
 }
 
+variable "aws_load_balancer_controller_role_arn" {
+  description = "IAM role ARN for the AWS Load Balancer Controller (from terraform/eks-cluster output)"
+  type        = string
+  default     = ""
+}
+
 variable "oidc_provider_arn" {
   description = "ARN of the OIDC provider for the EKS cluster (for IRSA). If not provided, will be automatically derived from the EKS cluster."
   type        = string

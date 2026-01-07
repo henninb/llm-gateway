@@ -181,7 +181,7 @@ resource "kubernetes_deployment" "openwebui" {
   }
 }
 
-# OpenWebUI Service (LoadBalancer - internet-facing)
+# OpenWebUI Service (ClusterIP - internal only, accessed via Ingress)
 resource "kubernetes_service" "openwebui" {
   metadata {
     name      = "openwebui"
@@ -190,48 +190,76 @@ resource "kubernetes_service" "openwebui" {
     labels = {
       app = "openwebui"
     }
-
-    annotations = merge(
-      {
-        "service.beta.kubernetes.io/aws-load-balancer-type"            = "nlb"
-        "service.beta.kubernetes.io/aws-load-balancer-scheme"          = "internet-facing"
-        "service.beta.kubernetes.io/aws-load-balancer-security-groups" = aws_security_group.cloudflare_only.id
-      },
-      var.acm_certificate_arn != "" ? {
-        "service.beta.kubernetes.io/aws-load-balancer-ssl-cert"               = var.acm_certificate_arn
-        "service.beta.kubernetes.io/aws-load-balancer-ssl-ports"              = "443"
-        "service.beta.kubernetes.io/aws-load-balancer-ssl-negotiation-policy" = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-      } : {}
-    )
   }
 
   spec {
-    type = "LoadBalancer"
+    type = "ClusterIP"
 
     selector = {
       app = "openwebui"
     }
 
-    # HTTPS port (only if ACM certificate is provided)
-    dynamic "port" {
-      for_each = var.acm_certificate_arn != "" ? [1] : []
-      content {
-        name        = "https"
-        port        = 443
-        target_port = 8080
-        protocol    = "TCP"
+    port {
+      name        = "http"
+      port        = 80
+      target_port = 8080
+      protocol    = "TCP"
+    }
+  }
+}
+
+# OpenWebUI Ingress (creates ALB)
+resource "kubernetes_ingress_v1" "openwebui" {
+  count = var.acm_certificate_arn != "" ? 1 : 0
+
+  metadata {
+    name      = "openwebui"
+    namespace = kubernetes_namespace.llm_gateway.metadata[0].name
+
+    labels = {
+      app = "openwebui"
+    }
+
+    annotations = {
+      "alb.ingress.kubernetes.io/scheme"          = "internet-facing"
+      "alb.ingress.kubernetes.io/target-type"     = "ip"
+      "alb.ingress.kubernetes.io/listen-ports"    = jsonencode([{ "HTTPS" = 443 }])
+      "alb.ingress.kubernetes.io/certificate-arn" = var.acm_certificate_arn
+      "alb.ingress.kubernetes.io/ssl-policy"      = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+      "alb.ingress.kubernetes.io/security-groups" = aws_security_group.isp_restricted.id
+    }
+  }
+
+  spec {
+    ingress_class_name = "alb"
+
+    rule {
+      http {
+        path {
+          path      = "/"
+          path_type = "Prefix"
+
+          backend {
+            service {
+              name = kubernetes_service.openwebui.metadata[0].name
+              port {
+                number = 80
+              }
+            }
+          }
+        }
       }
     }
   }
 }
 
-# Output OpenWebUI LoadBalancer hostname
+# Output OpenWebUI ALB hostname
 output "openwebui_loadbalancer_hostname" {
-  description = "LoadBalancer hostname for OpenWebUI"
-  value       = kubernetes_service.openwebui.status[0].load_balancer[0].ingress[0].hostname
+  description = "ALB hostname for OpenWebUI"
+  value       = var.acm_certificate_arn != "" && length(kubernetes_ingress_v1.openwebui) > 0 && length(kubernetes_ingress_v1.openwebui[0].status) > 0 && length(kubernetes_ingress_v1.openwebui[0].status[0].load_balancer) > 0 && length(kubernetes_ingress_v1.openwebui[0].status[0].load_balancer[0].ingress) > 0 ? kubernetes_ingress_v1.openwebui[0].status[0].load_balancer[0].ingress[0].hostname : "Provisioning ALB..."
 }
 
 output "openwebui_url" {
   description = "Full URL to access OpenWebUI"
-  value       = var.acm_certificate_arn != "" ? "https://${kubernetes_service.openwebui.status[0].load_balancer[0].ingress[0].hostname}" : "http://${kubernetes_service.openwebui.status[0].load_balancer[0].ingress[0].hostname}"
+  value       = var.acm_certificate_arn != "" && length(kubernetes_ingress_v1.openwebui) > 0 && length(kubernetes_ingress_v1.openwebui[0].status) > 0 && length(kubernetes_ingress_v1.openwebui[0].status[0].load_balancer) > 0 && length(kubernetes_ingress_v1.openwebui[0].status[0].load_balancer[0].ingress) > 0 ? "https://${kubernetes_ingress_v1.openwebui[0].status[0].load_balancer[0].ingress[0].hostname}" : "Provisioning ALB..."
 }
