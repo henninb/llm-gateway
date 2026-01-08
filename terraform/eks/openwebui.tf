@@ -22,6 +22,9 @@ resource "kubernetes_persistent_volume_claim" "openwebui_data" {
 
 # OpenWebUI Deployment
 resource "kubernetes_deployment" "openwebui" {
+  # Don't wait for rollout - the api-keys secret must be created first via External Secrets
+  wait_for_rollout = false
+
   metadata {
     name      = "openwebui"
     namespace = kubernetes_namespace.llm_gateway.metadata[0].name

@@ -162,7 +162,9 @@ eks-cluster-apply: ## Apply Terraform to create EKS cluster
 	@echo "  2. Install External Secrets:       make eks-install-external-secrets"
 	@echo "  3. Install AWS LB Controller:      make eks-install-aws-lb-controller"
 	@echo "  4. Populate secrets:               make eks-secrets-populate"
-	@echo "  5. Plan EKS deployment:            make eks-plan"
+	@echo "  5. Apply External Secrets:         make eks-external-secrets-apply"
+	@echo "  6. Plan EKS deployment:            make eks-plan"
+	@echo "  7. Apply EKS deployment:           make eks-apply"
 	@echo ""
 
 eks-cluster-destroy: ## Destroy EKS cluster infrastructure
@@ -238,7 +240,7 @@ eks-secrets-populate: eks-secrets-ensure ## Populate AWS Secrets Manager with AP
 				"$$PERPLEXITY_API_KEY" "$$LITELLM_MASTER_KEY" "$$WEBUI_SECRET_KEY")"; then \
 			echo "✓ Secrets populated successfully"; \
 			echo ""; \
-			echo "Next step: make eks-plan"; \
+			echo "Next step: make eks-external-secrets-apply"; \
 		else \
 			echo "✗ Failed to populate secrets"; \
 			exit 1; \
@@ -259,7 +261,7 @@ eks-secrets-populate: eks-secrets-ensure ## Populate AWS Secrets Manager with AP
 				"$$PERPLEXITY_API_KEY" "$$LITELLM_MASTER_KEY" "$$WEBUI_SECRET_KEY")"; then \
 			echo "✓ Secrets populated successfully"; \
 			echo ""; \
-			echo "Next step: make eks-plan"; \
+			echo "Next step: make eks-external-secrets-apply"; \
 		else \
 			echo "✗ Failed to populate secrets"; \
 			exit 1; \
@@ -301,19 +303,43 @@ eks-apply: eks-secrets-populate ## Apply Terraform to deploy to EKS (auto-popula
 	@echo "✓ EKS deployment applied successfully!"
 	@echo "=========================================="
 	@echo ""
-	@echo "Next step: make eks-external-secrets-apply"
+	@echo "Your LLM Gateway is now running on EKS"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  - Check pod status:           kubectl get pods -n llm-gateway"
+	@echo "  - View logs:                  kubectl logs -n llm-gateway -l app=litellm"
+	@echo "  - Get ALB URL:                kubectl get ingress -n llm-gateway"
+	@echo "  - Configure CloudFlare DNS:   make eks-verify-cloudflare-dns"
 	@echo ""
 
-eks-external-secrets-apply: ## Apply External Secrets manifests to Kubernetes (run after eks-apply)
-	@echo "Getting IAM role ARN from Terraform output..."
+eks-external-secrets-apply: ## Apply External Secrets manifests to Kubernetes (run after eks-secrets-populate, before eks-plan)
+	@echo "=========================================="
+	@echo "Preparing External Secrets configuration..."
+	@echo "=========================================="
+	@echo ""
+	@echo "Step 1/3: Ensuring namespace and IAM role exist..."
+	@cd terraform/eks && \
+	if [ ! -d .terraform ]; then \
+		echo "Initializing Terraform..."; \
+		terraform init; \
+	fi; \
+	echo "Creating namespace and IAM role (if needed)..."; \
+	terraform apply \
+		-target=kubernetes_namespace.llm_gateway \
+		-target=aws_iam_role.external_secrets \
+		-target=aws_iam_policy.external_secrets \
+		-target=aws_iam_role_policy_attachment.external_secrets \
+		-auto-approve
+	@echo ""
+	@echo "Step 2/3: Getting IAM role ARN..."
 	@ROLE_ARN=$$(cd terraform/eks && terraform output -raw external_secrets_role_arn 2>/dev/null); \
 	if [ -z "$$ROLE_ARN" ]; then \
 		echo "Error: Could not get external_secrets_role_arn from Terraform output"; \
-		echo "Please run 'make eks-apply' first"; \
 		exit 1; \
 	fi; \
 	echo "External Secrets Role ARN: $$ROLE_ARN"; \
-	echo "Applying External Secrets manifests..."; \
+	echo ""; \
+	echo "Step 3/3: Applying External Secrets manifests..."; \
 	cat k8s/external-secrets.yaml | \
 		sed "s|\$${EXTERNAL_SECRETS_ROLE_ARN}|$$ROLE_ARN|g" | \
 		sed "s|\$${AWS_REGION}|$(AWS_REGION)|g" | \
@@ -330,16 +356,12 @@ eks-external-secrets-apply: ## Apply External Secrets manifests to Kubernetes (r
 		echo "⚠ Secret not yet created - check: kubectl get externalsecret -n llm-gateway api-keys"; \
 	echo ""; \
 	echo "==========================================";\
-	echo "✓ Deployment complete!";\
+	echo "✓ External Secrets configured!";\
 	echo "==========================================";\
 	echo "";\
-	echo "Your LLM Gateway is now running on EKS";\
+	echo "The api-keys secret is now synced from AWS Secrets Manager";\
 	echo "";\
-	echo "Next steps:";\
-	echo "  - Check pod status:           kubectl get pods -n llm-gateway";\
-	echo "  - View logs:                  kubectl logs -n llm-gateway -l app=litellm";\
-	echo "  - Get ALB URL:                kubectl get ingress -n llm-gateway";\
-	echo "  - Configure CloudFlare DNS:   make eks-verify-cloudflare-dns";\
+	echo "Next step: make eks-plan";\
 	echo ""
 
 eks-destroy: ## Destroy EKS deployment

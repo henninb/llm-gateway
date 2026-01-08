@@ -26,6 +26,9 @@ resource "kubernetes_config_map" "litellm_config" {
 
 # LiteLLM Deployment
 resource "kubernetes_deployment" "litellm" {
+  # Don't wait for rollout - the api-keys secret must be created first via External Secrets
+  wait_for_rollout = false
+
   metadata {
     name      = "litellm"
     namespace = kubernetes_namespace.llm_gateway.metadata[0].name
