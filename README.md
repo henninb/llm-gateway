@@ -4,7 +4,14 @@ A production-ready, secure, and cost-optimized LLM gateway deployed on AWS EKS w
 
 ## Overview
 
-LLM Gateway is a unified interface for accessing multiple AI model providers (AWS Bedrock, Perplexity) through a single endpoint. Built with security, cost optimization, and production best practices in mind, it demonstrates enterprise-grade cloud architecture and DevOps practices.
+LLM Gateway is a unified interface for accessing multiple AI model providers (AWS Bedrock, Perplexity) through a single OpenAI-compatible endpoint. Built with security, cost optimization, and production best practices in mind, it demonstrates enterprise-grade cloud architecture and DevOps practices.
+
+**Key Highlights:**
+- 🔒 **Zero-trust security**: VPC endpoints, network policies, IRSA, External Secrets Operator
+- 💰 **Cost-optimized**: ~$152-170/month with SPOT instances and lifecycle policies
+- 🤖 **6 AI models**: 5 AWS Bedrock models (Nova family + Llama 3.2 1B) + 2 Perplexity models
+- 🛡️ **Custom guardrails**: Pre/post-call content filtering with streaming support
+- 📊 **Production-ready**: Auto-scaling, health checks, monitoring, and comprehensive testing
 
 ## Table of Contents
 
@@ -79,14 +86,14 @@ llm-gateway/
 ├── .secrets.example             # Template for required secrets
 ├── BUG-LITELLM-STREAMING.md    # Documentation of LiteLLM streaming bug and patch
 ├── BUG-FORMAT-MISMATCH.md      # Explanation of JSON vs SSE response formats
-├── CLOUDFLARE-ORIGIN-CERT.md          # CloudFlare Origin Certificate setup guide
+├── CLOUDFLARE-ORIGIN-CERT.md   # CloudFlare Origin Certificate setup guide
 └── README.md                    # This file (project documentation)
 ```
 
 **Terraform Modules:**
-- **`terraform/ecr/`**: Creates ECR repositories for LiteLLM and OpenWebUI images (deployed first)
-- **`terraform/eks-cluster/`**: Provisions EKS cluster, VPC, subnets, NAT gateway, IAM roles, and base infrastructure
-- **`terraform/eks/`**: Deploys applications (LiteLLM, OpenWebUI), ALB ingress, security groups, network policies, and IRSA roles
+- **`terraform/ecr/`**: Creates ECR repositories with lifecycle policies (keep only latest image)
+- **`terraform/eks-cluster/`**: Provisions EKS cluster, VPC with VPC endpoints, subnets, NAT gateway, Secrets Manager, and base infrastructure
+- **`terraform/eks/`**: Deploys applications (LiteLLM, OpenWebUI), External Secrets Operator, ALB ingress, security groups, network policies, and IRSA roles
 
 **Key Files:**
 - **`.secrets`**: Your local secrets file (create from `.secrets.example`, never commit to git)
@@ -133,15 +140,17 @@ llm-gateway/
 ## Key Features
 
 ### Security
+- **VPC Endpoints**: Private AWS service access - Bedrock and Secrets Manager traffic never touches internet
 - **Zero-Trust Networking**: Kubernetes NetworkPolicies enforce pod-to-pod isolation
+- **External Secrets Operator**: Secrets synced from AWS Secrets Manager (never stored in Terraform state)
 - **Flexible Access Control**: Choose between ISP-based restrictions or CloudFlare proxy mode
   - **ISP-Based (Default)**: ALB security groups restrict HTTPS to authorized IP ranges (FREE)
   - **CloudFlare Proxy (Optional)**: DDoS protection, WAF, bot detection, and edge caching (see `CLOUDFLARE-ORIGIN-CERT.md`)
 - **On-Demand IP Allowlisting**: Add temporary IP/CIDR access with `make eks-allow-ip`
-- **IRSA (IAM Roles for Service Accounts)**: AWS service authentication without static credentials
+- **IRSA (IAM Roles for Service Accounts)**: AWS service authentication without static credentials (least-privilege)
 - **Non-Root Containers**: All containers run as unprivileged users (UID 1000)
 - **HTTPS/TLS**: ACM certificate with ALB SSL termination (standard or CloudFlare Origin Certificate)
-- **AWS Metadata Service Blocking**: Prevents SSRF attacks
+- **AWS Metadata Service Blocking**: Prevents SSRF attacks (blocks 169.254.169.254 and 169.254.170.2)
 - **Rate Limiting**: Built-in request throttling (ENABLE_RATE_LIMIT=true)
 - **Input Validation**: Parameter sanitization and validation (LITELLM_DROP_PARAMS=true)
 
@@ -149,7 +158,8 @@ llm-gateway/
 - **SPOT Instances**: 50-90% cost savings on compute (t3.medium, t3a.medium, t2.medium)
 - **Single NAT Gateway**: ~$32/month savings vs multi-AZ NAT
 - **Resource Quotas**: Prevent resource waste
-- **ECR for Container Images**: Eliminates Docker Hub rate limits
+- **ECR with Lifecycle Policies**: Eliminates Docker Hub rate limits, keeps only latest image per repository
+- **VPC Endpoints**: Private AWS access reduces data transfer costs through NAT Gateway
 
 ### Multi-Provider Support
 - **AWS Bedrock Nova**: nova-micro, nova-lite, nova-pro
@@ -158,6 +168,14 @@ llm-gateway/
 - **Unified API**: OpenAI-compatible endpoint for all models
 
 ### Features
+- **External Secrets Operator**: Automatic secret synchronization from AWS Secrets Manager to Kubernetes
+  - Secrets never stored in Terraform state files
+  - IAM authentication via IRSA (no static credentials)
+  - Automatic refresh every 1 hour
+  - Centralized secret management in AWS Secrets Manager
+- **VPC Endpoints**: Private AWS service access for Bedrock and Secrets Manager
+  - AWS traffic stays on private network (never touches internet)
+  - Reduced attack surface and lower latency
 - **Arena Mode**: Blind random model selection for unbiased testing (currently disabled)
   - If enabled, would use 3 models: nova-lite, nova-pro, llama3-2-1b
   - OpenWebUI's Arena Mode randomly selects ONE model per request (not simultaneous multi-model comparison)
@@ -727,17 +745,37 @@ Key variables in `terraform/eks/terraform.tfvars`:
 
 ## Security Features
 
+### VPC Endpoints (Private AWS Service Access)
+- **Bedrock Runtime Endpoint**: AWS Bedrock API traffic stays on private AWS network (never touches internet)
+- **Secrets Manager Endpoint**: External Secrets Operator syncs secrets privately
+- **Cost**: ~$14.40/month (2 endpoints × $7.20/month)
+- **Security Benefits**:
+  - AWS API calls don't traverse NAT Gateway or internet
+  - Reduced attack surface for AWS service access
+  - Lower latency for AWS API calls
+  - Enables stricter egress filtering for internet-bound traffic
+
 ### Network Policies
 - **LiteLLM**: Only accepts traffic from OpenWebUI pods
 - **OpenWebUI**: Only communicates with LiteLLM and AWS Secrets Manager
-- **DNS**: Both pods can resolve DNS via kube-system
-- **Metadata Service**: Blocked to prevent SSRF attacks
+- **DNS**: Both pods can resolve DNS via kube-system (UDP/TCP port 53)
+- **Metadata Service**: AWS metadata endpoints blocked to prevent SSRF attacks
+- **Egress Filtering**:
+  - AWS services use VPC endpoints (private network)
+  - Perplexity API requires internet access via NAT Gateway
+  - All other HTTPS traffic allowed (cannot restrict Perplexity's CloudFlare CDN IPs)
+  - Option to enable VPC Flow Logs for monitoring (~$5-10/month)
 
 ### IRSA (IAM Roles for Service Accounts)
-- LiteLLM pod has IAM role with:
-  - Bedrock InvokeModel permissions
-  - Secrets Manager read access (Perplexity API key)
-- No static AWS credentials stored in pods
+- **LiteLLM Pod**: IAM role with least-privilege permissions
+  - Bedrock InvokeModel permissions (scoped to specific models only)
+  - Model list: nova-micro, nova-lite, nova-pro, llama3-2-1b
+  - Supports both foundation-model and inference-profile ARN formats
+- **External Secrets Pod**: IAM role for Secrets Manager read access
+  - Perplexity API key retrieval
+  - LiteLLM master key retrieval
+  - OpenWebUI secret key retrieval
+- No static AWS credentials stored in pods or Terraform state
 
 ### Container Security
 - Non-root user (UID 1000)
@@ -762,17 +800,24 @@ Estimated monthly costs (us-east-1, default configuration with 1 node):
 - EKS Control Plane: ~$73
 - EC2 SPOT Instances (1x t3.medium): ~$8-15
 - NAT Gateway: ~$32
+- VPC Endpoints (2): ~$14.40
+  - Bedrock Runtime: ~$7.20
+  - Secrets Manager: ~$7.20
 - EBS Volumes: ~$8
 - Application Load Balancer: ~$16-22
+- ECR Storage: ~$0.10/GB/month (~$0.40 for 2 images)
 - Data Transfer: Variable
 
-**Total: ~$137-150/month**
+**Total: ~$152-170/month**
 
 Cost optimizations implemented:
 - Single NAT gateway vs multi-AZ (~$32/month savings)
 - SPOT instances vs on-demand (~$15-30/month savings per node)
-- ECR vs Docker Hub (avoids rate limits)
+- ECR lifecycle policy (keep only 1 image per repository)
+- VPC endpoints reduce data transfer costs and improve security
 - Default 1 node (can scale to 2+ for high availability)
+
+**Note**: VPC endpoints add ~$14/month but provide significant security benefits (private AWS access) and may reduce data transfer costs through NAT Gateway.
 
 ## Usage
 
