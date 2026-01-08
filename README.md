@@ -9,7 +9,7 @@ LLM Gateway is a unified interface for accessing multiple AI model providers (AW
 **Key Highlights:**
 - 🔒 **Zero-trust security**: VPC endpoints, network policies, IRSA, External Secrets Operator
 - 💰 **Cost-optimized**: ~$152-170/month with SPOT instances and lifecycle policies
-- 🤖 **6 AI models**: 5 AWS Bedrock models (Nova family + Llama 3.2 1B) + 2 Perplexity models
+- 🤖 **6 AI models**: 4 AWS Bedrock models (Nova family + Llama 3.2 1B) + 2 Perplexity models
 - 🛡️ **Custom guardrails**: Pre/post-call content filtering with streaming support
 - 📊 **Production-ready**: Auto-scaling, health checks, monitoring, and comprehensive testing
 
@@ -57,6 +57,8 @@ llm-gateway/
 ├── config/                      # LiteLLM configuration and custom guardrails
 │   ├── litellm_config.yaml     # Model definitions, guardrails, and LiteLLM settings
 │   └── custom_guardrail.py     # Example content filtering implementation
+├── k8s/                         # Kubernetes manifests
+│   └── external-secrets.yaml   # External Secrets Operator configuration
 ├── patches/                     # LiteLLM bug fixes applied during Docker build
 │   └── apply_litellm_fix.py    # Fix for ModifyResponseException streaming bug
 ├── terraform/                   # Infrastructure as Code
@@ -107,6 +109,7 @@ llm-gateway/
 - **`CLOUDFLARE-ORIGIN-CERT.md`**: Guide for CloudFlare Origin Certificate setup and proxy mode
 - **`BUG-LITELLM-STREAMING.md`**: LiteLLM streaming bug details and patch explanation
 - **`BUG-FORMAT-MISMATCH.md`**: JSON dict vs SSE response format differences
+- **`SECURITY-REPORT.md`**: Security and bug analysis report (24 issues categorized by severity)
 
 ## Architecture
 
@@ -637,7 +640,7 @@ The included example (`config/custom_guardrail.py` - `DuckiesBunniesGuardrail` c
 
 **Technical Details:**
 - Uses `ModifyResponseException` with `on_flagged_action: "passthrough"`
-- Includes patch for LiteLLM v1.80.11 streaming bug (see `LITELLM-BUG.md`)
+- Includes patch for LiteLLM v1.80.11 streaming bug (see `BUG-LITELLM-STREAMING.md`)
 - Works around LiteLLM streaming limitation: post_call hooks don't execute for streaming responses
 - Automatically forces non-streaming mode to enable output filtering
 - Maintains chat context integrity across both local and production environments
@@ -908,7 +911,7 @@ make test-all
 This runs:
 1. **Setup validation**: Verifies required tools are installed
 2. **Health checks**: Validates service connectivity
-3. **Model tests**: Tests all 7 LiteLLM models across 3 providers
+3. **Model tests**: Tests all 6 LiteLLM models across 3 providers
 4. **Guardrail tests**: Validates pre_call and post_call content filtering
 
 ### Guardrails Testing
@@ -999,7 +1002,7 @@ This validates:
 - ✅ Multi-provider access (AWS Bedrock + Perplexity)
 - ✅ Zero-trust network policies (LiteLLM internal-only)
 - ✅ Production EKS deployment
-- ✅ All 7 configured models
+- ✅ All 6 configured models
 - ✅ Pre_call and post_call guardrails
 
 #### Manual cURL Testing
