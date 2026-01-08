@@ -288,6 +288,7 @@ make ecr-destroy          # Destroy ECR repositories
 make ecr-login            # Login to AWS ECR
 make ecr-build-push       # Build and push Docker images to ECR
 make ecr-verify           # Verify ECR images match local builds
+make ecr-cleanup-untagged # Delete all untagged ECR images
 
 # EKS Cluster Infrastructure
 make eks-cluster-init     # Initialize Terraform for EKS cluster
@@ -1374,6 +1375,9 @@ make ecr-build-push
 # Verify images match (recommended)
 make ecr-verify
 
+# Clean up old untagged images (recommended)
+make ecr-cleanup-untagged
+
 # Update deployments
 make eks-apply
 ```
@@ -1418,6 +1422,51 @@ ECR OpenWebUI digest:
   ✓ All images verified successfully!
 ========================================
 ```
+
+### Clean Up Untagged ECR Images
+
+When you push new Docker images to ECR with the same tag (e.g., `latest`), the previous image becomes untagged. While ECR lifecycle policies are configured to keep only 1 image per repository, these policies can be slow or unreliable (taking 24+ hours or sometimes not running at all for small repositories).
+
+To immediately clean up untagged images and reduce storage costs:
+
+```bash
+# Delete all untagged images from both repositories
+make ecr-cleanup-untagged
+```
+
+This command:
+1. Searches for untagged images in both `llm-gateway/litellm` and `llm-gateway/openwebui` repositories
+2. Reports how many untagged images were found
+3. Deletes all untagged images to free up storage
+4. Shows confirmation of cleanup completion
+
+**Example output:**
+```
+========================================
+  ECR Untagged Image Cleanup
+========================================
+
+Searching for untagged images in llm-gateway repositories...
+
+Found 2 untagged image(s):
+  - llm-gateway/litellm: 1
+  - llm-gateway/openwebui: 1
+
+Deleting untagged images...
+  Deleting llm-gateway/litellm@sha256:8d2fd01af90747a...
+  Deleting llm-gateway/openwebui@sha256:a9191ba9cafee50a...
+
+✓ Cleanup completed! Deleted 2 image(s)
+
+========================================
+```
+
+**When to use:**
+- After pushing new images with `make ecr-build-push` (creates untagged images when tags are moved)
+- As part of regular maintenance to minimize storage costs (ECR charges $0.10/GB/month)
+- When you notice multiple images per repository but expect only one
+
+**Cost savings:** Removing untagged images can save ~$0.24/month (~2.4 GB storage for this project).
 
 ### Rotate Secrets
 ```bash

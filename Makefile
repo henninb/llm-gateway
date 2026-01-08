@@ -143,6 +143,58 @@ ecr-verify: ## Verify ECR images match local builds
 	echo "  ✓ All images verified successfully!" && \
 	echo "========================================"
 
+ecr-cleanup-untagged: ## Delete all untagged ECR images
+	@echo "========================================"
+	@echo "  ECR Untagged Image Cleanup"
+	@echo "========================================"
+	@echo ""
+	@echo "Searching for untagged images in llm-gateway repositories..."
+	@echo ""
+	@LITELLM_UNTAGGED=$$(aws ecr describe-images \
+		--repository-name llm-gateway/litellm \
+		--region $(AWS_REGION) \
+		--query 'imageDetails[?imageTags==null].imageDigest' \
+		--output text) && \
+	OPENWEBUI_UNTAGGED=$$(aws ecr describe-images \
+		--repository-name llm-gateway/openwebui \
+		--region $(AWS_REGION) \
+		--query 'imageDetails[?imageTags==null].imageDigest' \
+		--output text) && \
+	if [ -z "$$LITELLM_UNTAGGED" ]; then LITELLM_COUNT=0; else LITELLM_COUNT=$$(echo "$$LITELLM_UNTAGGED" | wc -w); fi && \
+	if [ -z "$$OPENWEBUI_UNTAGGED" ]; then OPENWEBUI_COUNT=0; else OPENWEBUI_COUNT=$$(echo "$$OPENWEBUI_UNTAGGED" | wc -w); fi && \
+	TOTAL_COUNT=$$((LITELLM_COUNT + OPENWEBUI_COUNT)) && \
+	echo "Found $$TOTAL_COUNT untagged image(s):" && \
+	echo "  - llm-gateway/litellm: $$LITELLM_COUNT" && \
+	echo "  - llm-gateway/openwebui: $$OPENWEBUI_COUNT" && \
+	echo "" && \
+	if [ $$TOTAL_COUNT -eq 0 ]; then \
+		echo "✓ No untagged images found. All clean!"; \
+	else \
+		echo "Deleting untagged images..." && \
+		if [ -n "$$LITELLM_UNTAGGED" ]; then \
+			for digest in $$LITELLM_UNTAGGED; do \
+				echo "  Deleting llm-gateway/litellm@$$digest" && \
+				aws ecr batch-delete-image \
+					--repository-name llm-gateway/litellm \
+					--region $(AWS_REGION) \
+					--image-ids imageDigest=$$digest > /dev/null 2>&1; \
+			done; \
+		fi && \
+		if [ -n "$$OPENWEBUI_UNTAGGED" ]; then \
+			for digest in $$OPENWEBUI_UNTAGGED; do \
+				echo "  Deleting llm-gateway/openwebui@$$digest" && \
+				aws ecr batch-delete-image \
+					--repository-name llm-gateway/openwebui \
+					--region $(AWS_REGION) \
+					--image-ids imageDigest=$$digest > /dev/null 2>&1; \
+			done; \
+		fi && \
+		echo "" && \
+		echo "✓ Cleanup completed! Deleted $$TOTAL_COUNT image(s)"; \
+	fi && \
+	echo "" && \
+	echo "========================================"
+
 # EKS Cluster Infrastructure Targets
 eks-cluster-init: ## Initialize Terraform for EKS cluster creation
 	@cd terraform/eks-cluster && terraform init
