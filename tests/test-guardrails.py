@@ -22,7 +22,7 @@ The guardrail should:
 - Work correctly for both streaming and non-streaming requests
 - Allow normal conversations to proceed
 
-Tests with both Bedrock (llama3-2-3b) and Perplexity (perplexity-sonar) models
+Tests with both Bedrock (llama3-2-1b) and Perplexity (perplexity-sonar) models
 
 Usage:
     # Test local deployment
@@ -44,7 +44,7 @@ API_KEY = os.getenv("LITELLM_MASTER_KEY", "sk-1234")
 
 # Test both Bedrock and Perplexity models
 MODELS_TO_TEST = [
-    "llama3-2-3b",      # Bedrock model
+    "llama3-2-1b",      # Bedrock model
     "perplexity-sonar"  # Perplexity model
 ]
 

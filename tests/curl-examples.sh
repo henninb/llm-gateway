@@ -38,19 +38,19 @@ curl -s "$ENDPOINT/v1/chat/completions" \
 echo ""
 echo ""
 
-# Example 2: Test Meta Llama 3.2 3B
-echo "=== Example 2: Test Meta Llama 3.2 3B ==="
+# Example 2: Test Meta Llama 3.2 1B
+echo "=== Example 2: Test Meta Llama 3.2 1B ==="
 echo "Command:"
 echo "curl $ENDPOINT/v1/chat/completions \\"
 echo "  -H 'Authorization: Bearer \$LITELLM_MASTER_KEY' \\"
 echo "  -H 'Content-Type: application/json' \\"
-echo "  -d '{\"model\":\"llama3-2-3b\",\"messages\":[{\"role\":\"user\",\"content\":\"What is AI?\"}]}'"
+echo "  -d '{\"model\":\"llama3-2-1b\",\"messages\":[{\"role\":\"user\",\"content\":\"What is AI?\"}]}'"
 echo ""
 
 curl -s "$ENDPOINT/v1/chat/completions" \
   -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -H 'Content-Type: application/json' \
-  -d '{"model":"llama3-2-3b","messages":[{"role":"user","content":"What is AI?"}]}' | jq .
+  -d '{"model":"llama3-2-1b","messages":[{"role":"user","content":"What is AI?"}]}' | jq .
 
 echo ""
 echo ""
@@ -108,7 +108,6 @@ echo "    - nova-micro     (Amazon Nova Micro - fastest, cheapest)"
 echo "    - nova-lite      (Amazon Nova Lite - balanced)"
 echo "    - nova-pro       (Amazon Nova Pro - most capable)"
 echo "    - llama3-2-1b    (Meta Llama 3.2 1B)"
-echo "    - llama3-2-3b    (Meta Llama 3.2 3B)"
 echo ""
 echo "  Perplexity:"
 echo "    - perplexity-sonar       (Real-time web search)"

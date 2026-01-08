@@ -5,7 +5,7 @@ LiteLLM Models API Test Script
 Tests all configured LiteLLM models via the OpenAI-compatible API.
 Demonstrates proper IRSA authentication and multi-provider access.
 
-This test validates basic model connectivity (7 models across 3 providers).
+This test validates basic model connectivity (6 models across 3 providers).
 For guardrail testing, see test-guardrails.py.
 
 Usage:
@@ -65,7 +65,6 @@ MODELS = [
 
     # Meta Llama Models
     ("llama3-2-1b", "Meta Llama 3.2 1B", "Hi there"),
-    ("llama3-2-3b", "Meta Llama 3.2 3B", "Hello, how are you?"),
 ]
 
 def test_model(model_id: str, model_name: str, prompt: str) -> Tuple[bool, str]:

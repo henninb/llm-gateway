@@ -33,12 +33,10 @@ data "aws_iam_policy_document" "litellm_bedrock" {
       "arn:aws:bedrock:*::foundation-model/amazon.nova-micro-v1:0",
       "arn:aws:bedrock:*::foundation-model/amazon.nova-lite-v1:0",
       "arn:aws:bedrock:*::foundation-model/amazon.nova-pro-v1:0",
-      # Meta Llama models with us. prefix (cross-region inference - all regions)
+      # Meta Llama 3.2 1B model with us. prefix (cross-region inference - all regions)
       "arn:aws:bedrock:*::foundation-model/us.meta.llama3-2-1b-instruct-v1:0",
-      "arn:aws:bedrock:*::foundation-model/us.meta.llama3-2-3b-instruct-v1:0",
-      # Meta Llama models without us. prefix (direct region access - all regions)
-      "arn:aws:bedrock:*::foundation-model/meta.llama3-2-1b-instruct-v1:0",
-      "arn:aws:bedrock:*::foundation-model/meta.llama3-2-3b-instruct-v1:0"
+      # Meta Llama 3.2 1B model without us. prefix (direct region access - all regions)
+      "arn:aws:bedrock:*::foundation-model/meta.llama3-2-1b-instruct-v1:0"
     ]
   }
 
@@ -54,12 +52,10 @@ data "aws_iam_policy_document" "litellm_bedrock" {
       "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/amazon.nova-micro-v1:0",
       "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/amazon.nova-lite-v1:0",
       "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/amazon.nova-pro-v1:0",
-      # Meta Llama models (inference profiles with us. prefix - all regions)
+      # Meta Llama 3.2 1B model (inference profile with us. prefix - all regions)
       "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/us.meta.llama3-2-1b-instruct-v1:0",
-      "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/us.meta.llama3-2-3b-instruct-v1:0",
-      # Meta Llama models (inference profiles without us. prefix - all regions)
-      "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/meta.llama3-2-1b-instruct-v1:0",
-      "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/meta.llama3-2-3b-instruct-v1:0"
+      # Meta Llama 3.2 1B model (inference profile without us. prefix - all regions)
+      "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/meta.llama3-2-1b-instruct-v1:0"
     ]
   }
 }

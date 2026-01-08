@@ -54,15 +54,34 @@ resource "kubernetes_network_policy" "litellm" {
       }
     }
 
-    # EGRESS: Allow HTTPS to external APIs (Bedrock, Perplexity)
+    # EGRESS: Allow HTTPS to external APIs
+    #
+    # SECURITY NOTE:
+    # - AWS Bedrock traffic uses VPC endpoints (private network, no internet)
+    # - Perplexity API (api.perplexity.ai) requires internet access
+    # - Perplexity uses CloudFlare CDN (IPs change frequently), so we can't use static IP filtering
+    #
+    # CURRENT STATE: Allows HTTPS to any destination (except AWS metadata service)
+    #
+    # RISK: Compromised container could exfiltrate data to attacker-controlled HTTPS endpoints
+    #
+    # MITIGATION OPTIONS:
+    # 1. VPC Endpoints for AWS (IMPLEMENTED) - AWS traffic stays private
+    # 2. AWS Network Firewall with domain filtering - Cost: ~$285/month, overkill for this setup
+    # 3. Service Mesh (Istio/Calico Enterprise) - Complex, resource overhead
+    # 4. Accept risk with monitoring - Use VPC Flow Logs + CloudWatch alerts for anomalies
+    #
+    # RECOMMENDATION: Use VPC Flow Logs to monitor outbound HTTPS connections
     egress {
       to {
-        # Allow any external destination (AWS Bedrock, Perplexity API)
-        # In production, you could restrict this to specific CIDR blocks
+        # Allow HTTPS to any external destination
+        # AWS Bedrock: Uses VPC endpoint (doesn't hit this rule)
+        # Perplexity API: Requires internet access via NAT Gateway
         ip_block {
           cidr = "0.0.0.0/0"
           except = [
-            "169.254.169.254/32" # Block AWS metadata service
+            "169.254.169.254/32", # Block AWS metadata service (SSRF protection)
+            "169.254.170.2/32"    # Block ECS/EKS task metadata endpoint
           ]
         }
       }

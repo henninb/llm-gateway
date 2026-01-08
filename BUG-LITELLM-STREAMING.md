@@ -105,7 +105,7 @@ guardrails:
 curl -X POST http://localhost:4000/v1/chat/completions \
   -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -d '{
-    "model": "llama3-2-3b",
+    "model": "llama3-2-1b",
     "messages": [{"role": "user", "content": "blocked content"}],
     "stream": true  # Required for bug
   }'

@@ -139,8 +139,6 @@ printf "%b=== Meta Llama Models (AWS Bedrock) ===%b\n" "$BLUE" "$NC"
 printf "Authentication: IRSA via AWS Bedrock\n"
 printf "\n"
 test_model "llama3-2-1b" "Hi"
-sleep 1
-test_model "llama3-2-3b" "Hello there"
 printf "\n"
 
 # Test Perplexity models (API key from Secrets Manager)

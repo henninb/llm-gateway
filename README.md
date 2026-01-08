@@ -58,7 +58,7 @@ llm-gateway/
 │   └── eks/                    # Application deployment (LiteLLM, OpenWebUI)
 ├── tests/                       # Comprehensive test suites
 │   ├── test-guardrails.py      # Pre/post-call content filtering tests
-│   ├── test-litellm-models-api.sh  # Model connectivity tests (7 models)
+│   ├── test-litellm-models-api.sh  # Model connectivity tests (6 models)
 │   ├── test-litellm-models-api.py  # Python version of model tests
 │   ├── test-health.sh          # Service health checks
 │   ├── test-production.sh      # Production deployment validation
@@ -153,13 +153,13 @@ llm-gateway/
 
 ### Multi-Provider Support
 - **AWS Bedrock Nova**: nova-micro, nova-lite, nova-pro
-- **AWS Bedrock Llama**: llama3-2-1b, llama3-2-3b
+- **AWS Bedrock Llama**: llama3-2-1b
 - **Perplexity**: perplexity-sonar, perplexity-sonar-pro
 - **Unified API**: OpenAI-compatible endpoint for all models
 
 ### Features
 - **Arena Mode**: Blind random model selection for unbiased testing (currently disabled)
-  - If enabled, would use 3 models: nova-lite, nova-pro, llama3-2-3b
+  - If enabled, would use 3 models: nova-lite, nova-pro, llama3-2-1b
   - OpenWebUI's Arena Mode randomly selects ONE model per request (not simultaneous multi-model comparison)
   - Models are hidden during conversation for unbiased evaluation
   - Configured via `ENABLE_EVALUATION_ARENA_MODELS` and `EVALUATION_ARENA_MODELS` environment variables
@@ -253,7 +253,7 @@ make local-destroy         # Destroy local environment
 # Testing
 make validate-setup        # Validate required tools are installed
 make test-health          # Check service health and connectivity
-make test-litellm-models  # Test all LiteLLM models (7 models across 3 providers)
+make test-litellm-models  # Test all LiteLLM models (6 models across 3 providers)
 make test-guardrails      # Test custom guardrails (pre_call and post_call hooks)
 make test-all             # Run all tests (setup, health, models, guardrails)
 
@@ -369,6 +369,55 @@ This command:
 - Validates that all required keys are present
 
 **Important:** AWS credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) are only needed for local testing. In EKS, pods use IRSA (IAM Roles for Service Accounts) to access AWS Bedrock without static credentials.
+
+#### External Secrets Operator (Secret Management)
+
+The project uses **External Secrets Operator (ESO)** to sync secrets from AWS Secrets Manager to Kubernetes without storing secret values in Terraform state. This provides better security by keeping secrets in AWS Secrets Manager and using IAM authentication.
+
+**How it works:**
+```
+AWS Secrets Manager → External Secrets Operator (IRSA) → Kubernetes Secret → Pods
+```
+
+**Key benefits:**
+- Secrets never stored in Terraform state files
+- IAM authentication via IRSA (no static credentials)
+- Automatic synchronization (secrets refresh every 1 hour)
+- Centralized secret management in AWS Secrets Manager
+
+**Setup process (automated by Makefile):**
+
+1. **Install External Secrets Operator:**
+   ```bash
+   make eks-install-external-secrets
+   ```
+   Installs ESO in the `external-secrets-system` namespace with CRDs.
+
+2. **Populate AWS Secrets Manager:** (Already done in Step 3 above)
+   ```bash
+   make eks-secrets-populate
+   ```
+
+3. **Configure External Secrets Kubernetes resources:**
+   ```bash
+   make eks-external-secrets-apply
+   ```
+   This creates:
+   - IAM role with permissions to read from Secrets Manager
+   - ServiceAccount with IRSA annotation
+   - SecretStore (defines AWS authentication)
+   - ExternalSecret (defines which secret to sync)
+
+4. **Verify synchronization:**
+   ```bash
+   # Check ExternalSecret status (should show "SecretSynced")
+   kubectl get externalsecret -n llm-gateway
+
+   # Verify the secret exists
+   kubectl get secret api-keys -n llm-gateway
+   ```
+
+**Note:** The deployment workflow now runs `make eks-external-secrets-apply` BEFORE `make eks-apply` to ensure secrets exist before pods start. Terraform deployments use `wait_for_rollout = false` to avoid blocking on secret dependencies.
 
 ### Step 4: Request ACM Certificate
 
@@ -626,7 +675,7 @@ POST_CALL TESTS (Output Filtering)
 ✅ PASS: LLM output blocked in streaming mode (stream=false forcing)
 ✅ PASS: Indirect bypass blocked (post_call caught "duck" in response)
 
-Model 'llama3-2-3b' Results: 6/6 tests passed
+Model 'llama3-2-1b' Results: 6/6 tests passed
 🎉 All tests passed! (12/12)
 ```
 
@@ -746,7 +795,7 @@ OpenWebUI's Arena Mode provides **blind testing** by randomly selecting ONE mode
 **Configured models** (if enabled):
 - `nova-lite` - AWS Bedrock Nova Lite (fastest, most cost-effective)
 - `nova-pro` - AWS Bedrock Nova Pro (balanced performance)
-- `llama3-2-3b` - Meta Llama 3.2 3B (open-source model)
+- `llama3-2-1b` - Meta Llama 3.2 1B (open-source model)
 
 **Configuration:**
 
@@ -757,7 +806,7 @@ Arena Mode is configured via environment variables in `Dockerfile.openwebui` and
 ENABLE_EVALUATION_ARENA_MODELS=false  # Currently disabled
 
 # Configure which models to use (if enabled)
-EVALUATION_ARENA_MODELS='["nova-lite","nova-pro","llama3-2-3b"]'
+EVALUATION_ARENA_MODELS='["nova-lite","nova-pro","llama3-2-1b"]'
 
 # Allow OpenWebUI admin settings to persist across restarts
 ENABLE_PERSISTENT_CONFIG=true  # Admin UI changes are saved to database
@@ -775,7 +824,7 @@ OpenWebUI **always forces `stream=true`** for ANY model used in the Arena Mode c
 
 ### Available Models
 - **AWS Bedrock Nova**: nova-micro, nova-lite, nova-pro
-- **AWS Bedrock Llama**: llama3-2-1b, llama3-2-3b
+- **AWS Bedrock Llama**: llama3-2-1b
 - **Perplexity**: perplexity-sonar, perplexity-sonar-pro
 
 ### API Access
@@ -841,7 +890,7 @@ The test suite validates (6 tests per model, 12 total):
 6. **Indirect bypass prevention**: Catches responses to indirect queries ("what is bird that quacks?")
 
 Tests run against both:
-- **AWS Bedrock model**: llama3-2-3b
+- **AWS Bedrock model**: llama3-2-1b
 - **Perplexity model**: perplexity-sonar
 
 **Example output:**
@@ -856,13 +905,13 @@ POST_CALL TESTS (Output Filtering)
 ✅ PASS: LLM output blocked in streaming mode (stream=false forcing)
 ✅ PASS: Indirect bypass blocked (post_call caught "duck" in response)
 
-Model 'llama3-2-3b' Results: 6/6 tests passed
+Model 'llama3-2-1b' Results: 6/6 tests passed
 🎉 All tests passed! (12/12)
 ```
 
 ### Model Connectivity Testing
 
-Test all configured LiteLLM models (7 models across 3 providers):
+Test all configured LiteLLM models (6 models across 3 providers):
 
 ```bash
 # Test all models
@@ -924,11 +973,11 @@ curl http://localhost:4000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"nova-pro","messages":[{"role":"user","content":"Say hello"}]}'
 
-# Test Meta Llama 3.2 3B (AWS Bedrock via IRSA)
+# Test Meta Llama 3.2 1B (AWS Bedrock via IRSA)
 curl http://localhost:4000/v1/chat/completions \
   -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model":"llama3-2-3b","messages":[{"role":"user","content":"What is AI?"}]}'
+  -d '{"model":"llama3-2-1b","messages":[{"role":"user","content":"What is AI?"}]}'
 
 # Test Perplexity Sonar Pro (API key from Secrets Manager)
 curl http://localhost:4000/v1/chat/completions \

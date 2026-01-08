@@ -61,7 +61,7 @@ services:
       - ENABLE_OLLAMA_API=false
       - USER_AGENT=OpenWebUI
       - ENABLE_EVALUATION_ARENA_MODELS=false
-      - EVALUATION_ARENA_MODELS=["nova-lite","nova-pro","llama3-2-3b"]
+      - EVALUATION_ARENA_MODELS=["nova-lite","nova-pro","llama3-2-1b"]
       - ENABLE_PERSISTENT_CONFIG=true
       - BYPASS_MODEL_ACCESS_CONTROL=true
     depends_on:

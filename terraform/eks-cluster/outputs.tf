@@ -85,3 +85,40 @@ output "secrets_manager_secret_arn" {
   description = "ARN of the Secrets Manager secret for API keys"
   value       = aws_secretsmanager_secret.api_keys.arn
 }
+
+# VPC Endpoints outputs
+output "vpc_endpoint_bedrock_runtime_id" {
+  description = "VPC endpoint ID for AWS Bedrock Runtime"
+  value       = aws_vpc_endpoint.bedrock_runtime.id
+}
+
+output "vpc_endpoint_bedrock_runtime_dns" {
+  description = "DNS entries for Bedrock Runtime VPC endpoint"
+  value       = aws_vpc_endpoint.bedrock_runtime.dns_entry
+}
+
+output "vpc_endpoint_secrets_manager_id" {
+  description = "VPC endpoint ID for AWS Secrets Manager"
+  value       = aws_vpc_endpoint.secrets_manager.id
+}
+
+output "vpc_endpoint_secrets_manager_dns" {
+  description = "DNS entries for Secrets Manager VPC endpoint"
+  value       = aws_vpc_endpoint.secrets_manager.dns_entry
+}
+
+output "vpc_endpoints_summary" {
+  description = "Summary of VPC endpoints for private AWS service access"
+  value = {
+    bedrock_runtime = {
+      id           = aws_vpc_endpoint.bedrock_runtime.id
+      service_name = aws_vpc_endpoint.bedrock_runtime.service_name
+      state        = aws_vpc_endpoint.bedrock_runtime.state
+    }
+    secrets_manager = {
+      id           = aws_vpc_endpoint.secrets_manager.id
+      service_name = aws_vpc_endpoint.secrets_manager.service_name
+      state        = aws_vpc_endpoint.secrets_manager.state
+    }
+  }
+}

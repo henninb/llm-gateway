@@ -126,7 +126,7 @@ resource "kubernetes_deployment" "openwebui" {
 
           env {
             name  = "EVALUATION_ARENA_MODELS"
-            value = jsonencode(["nova-lite", "nova-pro", "llama3-2-3b"])
+            value = jsonencode(["nova-lite", "nova-pro", "llama3-2-1b"])
           }
 
           env {

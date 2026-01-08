@@ -46,12 +46,6 @@ model_list:
       aws_region_name: us-east-1
       stream: false  # Required for complete response filtering
 
-  - model_name: llama3-2-3b
-    litellm_params:
-      model: bedrock/us.meta.llama3-2-3b-instruct-v1:0
-      aws_region_name: us-east-1
-      stream: false  # Required for complete response filtering
-
 # LiteLLM Settings
 litellm_settings:
   # Drop parameters not supported by the backend

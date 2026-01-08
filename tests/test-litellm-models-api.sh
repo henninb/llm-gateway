@@ -3,7 +3,7 @@
 # Test script for all LiteLLM models
 # Tests Perplexity, Amazon Nova, and Meta Llama models
 #
-# This test validates basic model connectivity (7 models across 3 providers).
+# This test validates basic model connectivity (6 models across 3 providers).
 # For guardrail testing, see test-guardrails.py.
 #
 # Usage:
@@ -187,8 +187,6 @@ echo ""
 # Test Llama models (Meta - may need approval)
 echo "=== Llama Models (Meta) ==="
 run_test "llama3-2-1b" "hi"
-sleep 2  # Avoid rate limits
-run_test "llama3-2-3b" "hi"
 echo ""
 
 echo "=== Test Summary ==="
@@ -211,7 +209,7 @@ fi
 echo "Active Models:"
 echo "  ✓ Perplexity (perplexity-sonar, perplexity-sonar-pro)"
 echo "  ✓ Amazon Nova (nova-micro, nova-lite, nova-pro) - No payment required"
-echo "  ✓ Meta Llama (llama3-2-1b, llama3-2-3b) - May need approval"
+echo "  ✓ Meta Llama (llama3-2-1b) - May need approval"
 echo ""
 
 # Exit with failure if any tests failed

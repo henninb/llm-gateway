@@ -11,10 +11,10 @@ RUN groupadd -g 1000 openwebui && \
 RUN chown -R openwebui:openwebui /app
 
 # Configure Arena models for blind comparison
-# 1 Perplexity, 1 AWS, 1 Meta model
+# 2 AWS models (Nova Lite, Nova Pro), 1 Meta model (Llama 3.2 1B)
 # OpenWebUI's "Arena Mode" is just blind random model selection, not simultaneous multi-model comparison.
 ENV ENABLE_EVALUATION_ARENA_MODELS=false
-ENV EVALUATION_ARENA_MODELS='["nova-lite","nova-pro","llama3-2-3b"]'
+ENV EVALUATION_ARENA_MODELS='["nova-lite","nova-pro","llama3-2-1b"]'
 # Force environment variables to override database settings (admin UI changes won't persist)
 ENV ENABLE_PERSISTENT_CONFIG=true
 # Bypass model access control so all users (not just admins) can see all models
