@@ -152,12 +152,29 @@ eks-cluster-plan: ## Plan Terraform changes for EKS cluster
 
 eks-cluster-apply: ## Apply Terraform to create EKS cluster
 	@cd terraform/eks-cluster && terraform apply
+	@echo ""
+	@echo "=========================================="
+	@echo "✓ EKS Cluster created successfully!"
+	@echo "=========================================="
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Configure kubectl:              make eks-cluster-kubeconfig"
+	@echo "  2. Install External Secrets:       make eks-install-external-secrets"
+	@echo "  3. Install AWS LB Controller:      make eks-install-aws-lb-controller"
+	@echo "  4. Populate secrets:               make eks-secrets-populate"
+	@echo "  5. Plan EKS deployment:            make eks-plan"
+	@echo ""
 
 eks-cluster-destroy: ## Destroy EKS cluster infrastructure
 	@cd terraform/eks-cluster && terraform destroy
 
 eks-cluster-kubeconfig: ## Configure kubectl for EKS cluster
 	@aws eks update-kubeconfig --region $(AWS_REGION) --name llm-gateway-eks
+	@echo ""
+	@echo "✓ kubectl configured for EKS cluster"
+	@echo ""
+	@echo "Next step: make eks-install-external-secrets"
+	@echo ""
 
 eks-install-aws-lb-controller: ## Install AWS Load Balancer Controller (required for Ingress/ALB)
 	@echo "Getting IAM role ARN from eks-cluster Terraform output..."
@@ -186,7 +203,7 @@ eks-install-aws-lb-controller: ## Install AWS Load Balancer Controller (required
 	echo "Verifying installation..."; \
 	kubectl get deployment -n kube-system aws-load-balancer-controller; \
 	echo ""; \
-	echo "✓ You can now create Ingress resources to provision ALBs"
+	echo "Next step: make eks-secrets-populate"
 
 # EKS Secrets Management
 eks-secrets-ensure: ## Ensure AWS Secrets Manager secret exists (idempotent, creates if missing)
@@ -220,6 +237,8 @@ eks-secrets-populate: eks-secrets-ensure ## Populate AWS Secrets Manager with AP
 			--secret-string "$$(printf '{"PERPLEXITY_API_KEY":"%s","LITELLM_MASTER_KEY":"%s","WEBUI_SECRET_KEY":"%s"}' \
 				"$$PERPLEXITY_API_KEY" "$$LITELLM_MASTER_KEY" "$$WEBUI_SECRET_KEY")"; then \
 			echo "✓ Secrets populated successfully"; \
+			echo ""; \
+			echo "Next step: make eks-plan"; \
 		else \
 			echo "✗ Failed to populate secrets"; \
 			exit 1; \
@@ -239,6 +258,8 @@ eks-secrets-populate: eks-secrets-ensure ## Populate AWS Secrets Manager with AP
 			--secret-string "$$(printf '{"PERPLEXITY_API_KEY":"%s","LITELLM_MASTER_KEY":"%s","WEBUI_SECRET_KEY":"%s"}' \
 				"$$PERPLEXITY_API_KEY" "$$LITELLM_MASTER_KEY" "$$WEBUI_SECRET_KEY")"; then \
 			echo "✓ Secrets populated successfully"; \
+			echo ""; \
+			echo "Next step: make eks-plan"; \
 		else \
 			echo "✗ Failed to populate secrets"; \
 			exit 1; \
@@ -264,7 +285,8 @@ eks-install-external-secrets: ## Install External Secrets Operator (required bef
 	@echo "Verifying installation..."
 	@kubectl get pods -n external-secrets-system
 	@echo ""
-	@echo "✓ You can now run: make eks-plan && make eks-apply"
+	@echo "Next step: make eks-install-aws-lb-controller"
+	@echo ""
 
 eks-init: ## Initialize Terraform for EKS deployment
 	@cd terraform/eks && terraform init
@@ -274,6 +296,13 @@ eks-plan: ## Plan Terraform changes for EKS
 
 eks-apply: eks-secrets-populate ## Apply Terraform to deploy to EKS (auto-populates secrets first)
 	@cd terraform/eks && terraform apply
+	@echo ""
+	@echo "=========================================="
+	@echo "✓ EKS deployment applied successfully!"
+	@echo "=========================================="
+	@echo ""
+	@echo "Next step: make eks-external-secrets-apply"
+	@echo ""
 
 eks-external-secrets-apply: ## Apply External Secrets manifests to Kubernetes (run after eks-apply)
 	@echo "Getting IAM role ARN from Terraform output..."
@@ -298,7 +327,20 @@ eks-external-secrets-apply: ## Apply External Secrets manifests to Kubernetes (r
 	echo "Checking if api-keys secret was created..."; \
 	kubectl get secret -n llm-gateway api-keys 2>/dev/null && \
 		echo "✓ Secret 'api-keys' created successfully" || \
-		echo "⚠ Secret not yet created - check: kubectl get externalsecret -n llm-gateway api-keys"
+		echo "⚠ Secret not yet created - check: kubectl get externalsecret -n llm-gateway api-keys"; \
+	echo ""; \
+	echo "==========================================";\
+	echo "✓ Deployment complete!";\
+	echo "==========================================";\
+	echo "";\
+	echo "Your LLM Gateway is now running on EKS";\
+	echo "";\
+	echo "Next steps:";\
+	echo "  - Check pod status:           kubectl get pods -n llm-gateway";\
+	echo "  - View logs:                  kubectl logs -n llm-gateway -l app=litellm";\
+	echo "  - Get ALB URL:                kubectl get ingress -n llm-gateway";\
+	echo "  - Configure CloudFlare DNS:   make eks-verify-cloudflare-dns";\
+	echo ""
 
 eks-destroy: ## Destroy EKS deployment
 	@cd terraform/eks && terraform destroy
