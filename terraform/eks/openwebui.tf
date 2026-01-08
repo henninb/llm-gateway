@@ -90,7 +90,7 @@ resource "kubernetes_deployment" "openwebui" {
             name = "OPENAI_API_KEY"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret.api_keys.metadata[0].name
+                name = "api-keys"
                 key  = "litellm_master_key"
               }
             }
@@ -100,7 +100,7 @@ resource "kubernetes_deployment" "openwebui" {
             name = "WEBUI_SECRET_KEY"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret.api_keys.metadata[0].name
+                name = "api-keys"
                 key  = "webui_secret_key"
               }
             }

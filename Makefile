@@ -159,6 +159,35 @@ eks-cluster-destroy: ## Destroy EKS cluster infrastructure
 eks-cluster-kubeconfig: ## Configure kubectl for EKS cluster
 	@aws eks update-kubeconfig --region $(AWS_REGION) --name llm-gateway-eks
 
+eks-install-aws-lb-controller: ## Install AWS Load Balancer Controller (required for Ingress/ALB)
+	@echo "Getting IAM role ARN from eks-cluster Terraform output..."
+	@ROLE_ARN=$$(cd terraform/eks-cluster && terraform output -raw aws_load_balancer_controller_role_arn 2>/dev/null); \
+	if [ -z "$$ROLE_ARN" ]; then \
+		echo "Error: Could not get aws_load_balancer_controller_role_arn from Terraform output"; \
+		echo "Please run 'make eks-cluster-apply' first"; \
+		exit 1; \
+	fi; \
+	echo "AWS Load Balancer Controller Role ARN: $$ROLE_ARN"; \
+	echo "Adding EKS Helm repository..."; \
+	helm repo add eks https://aws.github.io/eks-charts || true; \
+	helm repo update; \
+	echo "Installing AWS Load Balancer Controller..."; \
+	helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+		-n kube-system \
+		--set clusterName=llm-gateway-eks \
+		--set serviceAccount.create=true \
+		--set serviceAccount.name=aws-load-balancer-controller \
+		--set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$$ROLE_ARN" \
+		--set region=$(AWS_REGION) \
+		--set vpcId=$$(aws eks describe-cluster --name llm-gateway-eks --region $(AWS_REGION) --query 'cluster.resourcesVpcConfig.vpcId' --output text) \
+		--wait; \
+	echo "✓ AWS Load Balancer Controller installed successfully"; \
+	echo ""; \
+	echo "Verifying installation..."; \
+	kubectl get deployment -n kube-system aws-load-balancer-controller; \
+	echo ""; \
+	echo "✓ You can now create Ingress resources to provision ALBs"
+
 # EKS Secrets Management
 eks-secrets-ensure: ## Ensure AWS Secrets Manager secret exists (idempotent, creates if missing)
 	@echo "Checking if Secrets Manager secret exists..."
@@ -217,6 +246,26 @@ eks-secrets-populate: eks-secrets-ensure ## Populate AWS Secrets Manager with AP
 	fi
 
 # EKS Deployment Targets
+eks-install-external-secrets: ## Install External Secrets Operator (required before eks-apply)
+	@echo "Cleaning up any existing External Secrets CRDs..."
+	@kubectl delete crd -l app.kubernetes.io/name=external-secrets 2>/dev/null || true
+	@kubectl get crd | grep external-secrets.io | awk '{print $$1}' | xargs -r kubectl delete crd 2>/dev/null || true
+	@echo "Adding External Secrets Helm repository..."
+	@helm repo add external-secrets https://charts.external-secrets.io || true
+	@helm repo update
+	@echo "Installing External Secrets Operator (includes CRDs)..."
+	@helm upgrade --install external-secrets external-secrets/external-secrets \
+		-n external-secrets-system \
+		--create-namespace \
+		--set installCRDs=true \
+		--wait
+	@echo "✓ External Secrets Operator installed successfully"
+	@echo ""
+	@echo "Verifying installation..."
+	@kubectl get pods -n external-secrets-system
+	@echo ""
+	@echo "✓ You can now run: make eks-plan && make eks-apply"
+
 eks-init: ## Initialize Terraform for EKS deployment
 	@cd terraform/eks && terraform init
 
@@ -225,6 +274,31 @@ eks-plan: ## Plan Terraform changes for EKS
 
 eks-apply: eks-secrets-populate ## Apply Terraform to deploy to EKS (auto-populates secrets first)
 	@cd terraform/eks && terraform apply
+
+eks-external-secrets-apply: ## Apply External Secrets manifests to Kubernetes (run after eks-apply)
+	@echo "Getting IAM role ARN from Terraform output..."
+	@ROLE_ARN=$$(cd terraform/eks && terraform output -raw external_secrets_role_arn 2>/dev/null); \
+	if [ -z "$$ROLE_ARN" ]; then \
+		echo "Error: Could not get external_secrets_role_arn from Terraform output"; \
+		echo "Please run 'make eks-apply' first"; \
+		exit 1; \
+	fi; \
+	echo "External Secrets Role ARN: $$ROLE_ARN"; \
+	echo "Applying External Secrets manifests..."; \
+	cat k8s/external-secrets.yaml | \
+		sed "s|\$${EXTERNAL_SECRETS_ROLE_ARN}|$$ROLE_ARN|g" | \
+		sed "s|\$${AWS_REGION}|$(AWS_REGION)|g" | \
+		kubectl apply -f -; \
+	echo "✓ External Secrets manifests applied successfully"; \
+	echo ""; \
+	echo "Waiting for ExternalSecret to sync (this may take a few seconds)..."; \
+	sleep 5; \
+	kubectl get externalsecret -n llm-gateway api-keys; \
+	echo ""; \
+	echo "Checking if api-keys secret was created..."; \
+	kubectl get secret -n llm-gateway api-keys 2>/dev/null && \
+		echo "✓ Secret 'api-keys' created successfully" || \
+		echo "⚠ Secret not yet created - check: kubectl get externalsecret -n llm-gateway api-keys"
 
 eks-destroy: ## Destroy EKS deployment
 	@cd terraform/eks && terraform destroy

@@ -10,15 +10,34 @@ services:
     user: "1000:1000"  # Run as non-root user (matches Dockerfile USER)
     # ports:
     #   - "4000:4000"  # Port not exposed to host - only accessible within Docker network
+
+    # OPTION A (Current): Mount ~/.aws directory with credentials file
+    # Requires: ~/.aws/credentials file exists
+    # Most secure: credentials not in docker inspect or env vars
+    volumes:
+      - ${HOME}/.aws:/home/litellm/.aws:ro
     environment:
       - AWS_REGION_NAME=${AWS_REGION:-us-east-1}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+      - AWS_SHARED_CREDENTIALS_FILE=/home/litellm/.aws/credentials
+      - AWS_CONFIG_FILE=/home/litellm/.aws/config
+      - HOME=/home/litellm
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
       - PERPLEXITY_API_KEY=${PERPLEXITY_API_KEY}
       - LITELLM_DROP_PARAMS=true
       - ENABLE_RATE_LIMIT=true
+
+    # OPTION B: Use environment variables (LESS SECURE - visible in docker inspect)
+    # Uncomment below and comment out volumes/env above to use this approach
+    # environment:
+    #   - AWS_REGION_NAME=${AWS_REGION:-us-east-1}
+    #   - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+    #   - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    #   - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+    #   - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+    #   - PERPLEXITY_API_KEY=${PERPLEXITY_API_KEY}
+    #   - LITELLM_DROP_PARAMS=true
+    #   - ENABLE_RATE_LIMIT=true
+
     networks:
       llm-gateway-network:
         aliases:

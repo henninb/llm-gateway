@@ -96,7 +96,7 @@ resource "kubernetes_deployment" "litellm" {
             name = "PERPLEXITY_API_KEY"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret.api_keys.metadata[0].name
+                name = "api-keys"
                 key  = "perplexity_api_key"
               }
             }
@@ -106,7 +106,7 @@ resource "kubernetes_deployment" "litellm" {
             name = "LITELLM_MASTER_KEY"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret.api_keys.metadata[0].name
+                name = "api-keys"
                 key  = "litellm_master_key"
               }
             }
@@ -206,18 +206,27 @@ resource "kubernetes_service" "litellm" {
   }
 }
 
-# Kubernetes Secret for API Keys (will be populated from AWS Secrets Manager)
-resource "kubernetes_secret" "api_keys" {
-  metadata {
-    name      = "api-keys"
-    namespace = kubernetes_namespace.llm_gateway.metadata[0].name
-  }
-
-  data = {
-    perplexity_api_key = data.aws_secretsmanager_secret_version.api_keys.secret_string != null ? jsondecode(data.aws_secretsmanager_secret_version.api_keys.secret_string)["PERPLEXITY_API_KEY"] : ""
-    litellm_master_key = data.aws_secretsmanager_secret_version.api_keys.secret_string != null ? jsondecode(data.aws_secretsmanager_secret_version.api_keys.secret_string)["LITELLM_MASTER_KEY"] : ""
-    webui_secret_key   = data.aws_secretsmanager_secret_version.api_keys.secret_string != null ? jsondecode(data.aws_secretsmanager_secret_version.api_keys.secret_string)["WEBUI_SECRET_KEY"] : ""
-  }
-
-  type = "Opaque"
-}
+# Kubernetes Secret for API Keys
+# NOTE: Secret is now managed by External Secrets Operator (see external-secrets.tf)
+# This avoids storing secret values in Terraform state
+#
+# The "api-keys" secret will be automatically created and synced from AWS Secrets Manager
+# by the ExternalSecret resource defined in external-secrets.tf
+#
+# To use the old approach (NOT RECOMMENDED - stores secrets in Terraform state):
+# Uncomment the resource below and delete external-secrets.tf
+#
+# resource "kubernetes_secret" "api_keys" {
+#   metadata {
+#     name      = "api-keys"
+#     namespace = kubernetes_namespace.llm_gateway.metadata[0].name
+#   }
+#
+#   data = {
+#     perplexity_api_key = data.aws_secretsmanager_secret_version.api_keys.secret_string != null ? jsondecode(data.aws_secretsmanager_secret_version.api_keys.secret_string)["PERPLEXITY_API_KEY"] : ""
+#     litellm_master_key = data.aws_secretsmanager_secret_version.api_keys.secret_string != null ? jsondecode(data.aws_secretsmanager_secret_version.api_keys.secret_string)["LITELLM_MASTER_KEY"] : ""
+#     webui_secret_key   = data.aws_secretsmanager_secret_version.api_keys.secret_string != null ? jsondecode(data.aws_secretsmanager_secret_version.api_keys.secret_string)["WEBUI_SECRET_KEY"] : ""
+#   }
+#
+#   type = "Opaque"
+# }

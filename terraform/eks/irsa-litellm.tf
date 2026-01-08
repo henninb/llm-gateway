@@ -17,14 +17,50 @@ data "aws_iam_openid_connect_provider" "eks" {
 }
 
 # IAM Policy for LiteLLM - Bedrock access
+# Scoped to specific models defined in litellm_config.yaml
+# Allows both foundation-model and inference-profile ARN formats
 data "aws_iam_policy_document" "litellm_bedrock" {
+  # Foundation models (all regions)
+  # Using wildcard for region because cross-region inference can route to any AWS region
   statement {
     effect = "Allow"
     actions = [
       "bedrock:InvokeModel",
       "bedrock:InvokeModelWithResponseStream"
     ]
-    resources = ["*"] # Allow access to all Bedrock models
+    resources = [
+      # Amazon Nova models (all regions)
+      "arn:aws:bedrock:*::foundation-model/amazon.nova-micro-v1:0",
+      "arn:aws:bedrock:*::foundation-model/amazon.nova-lite-v1:0",
+      "arn:aws:bedrock:*::foundation-model/amazon.nova-pro-v1:0",
+      # Meta Llama models with us. prefix (cross-region inference - all regions)
+      "arn:aws:bedrock:*::foundation-model/us.meta.llama3-2-1b-instruct-v1:0",
+      "arn:aws:bedrock:*::foundation-model/us.meta.llama3-2-3b-instruct-v1:0",
+      # Meta Llama models without us. prefix (direct region access - all regions)
+      "arn:aws:bedrock:*::foundation-model/meta.llama3-2-1b-instruct-v1:0",
+      "arn:aws:bedrock:*::foundation-model/meta.llama3-2-3b-instruct-v1:0"
+    ]
+  }
+
+  # Inference profiles (all regions)
+  statement {
+    effect = "Allow"
+    actions = [
+      "bedrock:InvokeModel",
+      "bedrock:InvokeModelWithResponseStream"
+    ]
+    resources = [
+      # Amazon Nova models (inference profiles - all regions)
+      "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/amazon.nova-micro-v1:0",
+      "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/amazon.nova-lite-v1:0",
+      "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/amazon.nova-pro-v1:0",
+      # Meta Llama models (inference profiles with us. prefix - all regions)
+      "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/us.meta.llama3-2-1b-instruct-v1:0",
+      "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/us.meta.llama3-2-3b-instruct-v1:0",
+      # Meta Llama models (inference profiles without us. prefix - all regions)
+      "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/meta.llama3-2-1b-instruct-v1:0",
+      "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/meta.llama3-2-3b-instruct-v1:0"
+    ]
   }
 }
 
