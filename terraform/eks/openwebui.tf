@@ -64,7 +64,7 @@ resource "kubernetes_deployment" "openwebui" {
 
         container {
           name  = "openwebui"
-          image = var.use_ecr_images ? "${data.aws_ecr_repository.openwebui.repository_url}:${var.ecr_image_tag}" : "ghcr.io/open-webui/open-webui:v0.6.43"
+          image = var.use_ecr_images ? "${data.aws_ecr_repository.openwebui.repository_url}:${var.ecr_image_tag}" : "ghcr.io/open-webui/open-webui:v0.7.2"
 
           port {
             container_port = 8080
@@ -112,6 +112,11 @@ resource "kubernetes_deployment" "openwebui" {
           env {
             name  = "DATA_DIR"
             value = "/app/backend/data"
+          }
+
+          env {
+            name  = "ENABLE_PERSISTENT_CONFIG"
+            value = "true"
           }
 
           env {

@@ -1,4 +1,4 @@
-FROM ghcr.io/open-webui/open-webui:v0.6.43
+FROM ghcr.io/open-webui/open-webui:v0.7.2
 
 # Verify curl is available for health checks (fail build if missing)
 RUN which curl || (echo "ERROR: curl not found in base image" && exit 1)

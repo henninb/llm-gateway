@@ -92,8 +92,9 @@ data "aws_iam_policy_document" "litellm_assume_role" {
 }
 
 resource "aws_iam_role" "litellm" {
-  name               = "${var.cluster_name}-litellm-sa"
-  assume_role_policy = data.aws_iam_policy_document.litellm_assume_role.json
+  name                 = "${var.cluster_name}-litellm-sa"
+  assume_role_policy   = data.aws_iam_policy_document.litellm_assume_role.json
+  force_detach_policies = true
 }
 
 # Attach Bedrock policy
