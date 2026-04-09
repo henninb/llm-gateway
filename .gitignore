@@ -60,3 +60,6 @@ terraform/eks/.terraform.tfstate.lock.info
 .openwebui_endpoint_eks
 
 terraform/eks-cluster/.terraform.tfstate.lock.info
+
+# Claude Code local settings
+.claude/settings.local.json
